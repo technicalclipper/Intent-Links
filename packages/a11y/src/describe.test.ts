@@ -115,7 +115,7 @@ test("describes a required field inside a modal, with its section", () => {
 });
 
 test("value can be withheld at the call site (redaction happens upstream)", () => {
-  const el = pick(`<input aria-label="API token" value="sk_live_abc">`, "input");
+  const el = pick(`<input aria-label="API token" value="test-token-placeholder">`, "input");
   const d = describeEl(el, { includeValue: false });
   assert.equal(d.value, undefined);
 });

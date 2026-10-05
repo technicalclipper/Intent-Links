@@ -98,27 +98,38 @@ export interface SpendIntent {
 /**
  * Single-use enforcement. The library stays storage-agnostic: the service backs
  * this with Postgres, tests use the in-memory implementation below.
+ *
+ * `nowEpochSeconds` is a parameter rather than something the store reads for
+ * itself. A store that reclaims expired records on a different clock than the
+ * verifier uses can drop the record of a spent token while the verifier still
+ * considers it live — which makes that token replayable. One clock, passed in.
  */
 export interface TokenStore {
   /** True the first time a jti is seen, false on every replay. */
-  consume(jti: string, expEpochSeconds: number): boolean | Promise<boolean>;
+  consume(
+    jti: string,
+    expEpochSeconds: number,
+    nowEpochSeconds: number,
+  ): boolean | Promise<boolean>;
 }
 
 export class MemoryTokenStore implements TokenStore {
   private readonly spent = new Map<string, number>();
 
-  consume(jti: string, expEpochSeconds: number): boolean {
-    this.sweep();
+  consume(jti: string, expEpochSeconds: number, nowEpochSeconds: number): boolean {
+    this.sweep(nowEpochSeconds);
     if (this.spent.has(jti)) return false;
     this.spent.set(jti, expEpochSeconds);
     return true;
   }
 
-  /** Expired entries can be dropped: expiry alone rejects them afterwards. */
-  private sweep(): void {
-    const nowSec = Math.floor(Date.now() / 1000);
+  /**
+   * Records are reclaimed only once the token they describe is itself expired
+   * by the same clock, so expiry rejects it from then on and nothing is lost.
+   */
+  private sweep(nowEpochSeconds: number): void {
     for (const [jti, exp] of this.spent) {
-      if (exp < nowSec) this.spent.delete(jti);
+      if (exp < nowEpochSeconds) this.spent.delete(jti);
     }
   }
 }
@@ -163,11 +174,12 @@ export async function verifyAndSpend(
     return { ok: false, reason: "wrong_target" };
   }
 
-  if (claims.exp <= Math.floor(now.getTime() / 1000)) return { ok: false, reason: "expired" };
+  const nowSec = Math.floor(now.getTime() / 1000);
+  if (claims.exp <= nowSec) return { ok: false, reason: "expired" };
 
   // Consumed last: a token rejected for any other reason must stay unspent, so
   // a near-miss cannot burn the authorization the agent legitimately holds.
-  if (!(await store.consume(claims.jti, claims.exp))) {
+  if (!(await store.consume(claims.jti, claims.exp, nowSec))) {
     return { ok: false, reason: "already_spent" };
   }
 

@@ -282,3 +282,20 @@ test("the summary is the tally the side panel shows live", () => {
   assert.equal(s.assertionsFailed, 1);
   assert.deepEqual(s.boundariesHit, ["don't invite anyone outside the company"]);
 });
+
+test("a spent token stays spent even when the verifier's clock lags the wall clock", async () => {
+  // Regression: MemoryTokenStore reclaimed expired records using Date.now()
+  // while verifyAndSpend judged expiry against the injected clock. When the
+  // injected clock was behind, the record of a spent token was swept away
+  // while the token itself was still considered live — and it replayed.
+  const store = new MemoryTokenStore();
+  const testClock = new Date("2020-01-01T00:00:00.000Z");
+  const { token } = issueToken(SECRET, binding, { ttlSeconds: 30, now: testClock });
+
+  const first = await verifyAndSpend(SECRET, token, intent(), store, testClock);
+  assert.equal(first.ok, true);
+
+  const replay = await verifyAndSpend(SECRET, token, intent(), store, testClock);
+  assert.equal(replay.ok, false);
+  assert.equal(replay.ok === false && replay.reason, "already_spent");
+});

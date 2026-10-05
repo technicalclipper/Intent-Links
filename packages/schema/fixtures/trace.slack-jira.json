@@ -1,0 +1,62 @@
+{
+  "traceId": "9f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f",
+  "createdBy": "sre-lead@acme.com",
+  "createdAt": "2026-10-05T09:12:04.000Z",
+  "sessions": 1,
+  "durationMs": 184000,
+  "apps": ["slack", "jira"],
+  "events": [
+    {
+      "seq": 0, "t": 0, "type": "navigate", "redacted": false,
+      "page": { "app": "slack", "origin": "https://acme.slack.com", "path": "/admin/channels", "routeTemplate": "/admin/channels", "title": "Manage channels" }
+    },
+    {
+      "seq": 1, "t": 3100, "type": "click", "redacted": false,
+      "page": { "app": "slack", "origin": "https://acme.slack.com", "path": "/admin/channels", "title": "Manage channels" },
+      "target": { "role": "button", "name": "Create channel", "nameSource": "text", "landmark": "main", "section": "Channels" }
+    },
+    {
+      "seq": 2, "t": 6400, "type": "fill", "value": "inc-2026-10-05-payments", "redacted": false,
+      "page": { "app": "slack", "origin": "https://acme.slack.com", "path": "/admin/channels", "title": "Manage channels" },
+      "target": { "role": "textbox", "name": "Channel name", "nameSource": "label", "landmark": "dialog", "section": "Create a channel", "required": true }
+    },
+    {
+      "seq": 3, "t": 11200, "type": "toggle", "redacted": false,
+      "page": { "app": "slack", "origin": "https://acme.slack.com", "path": "/admin/channels", "title": "Manage channels" },
+      "target": { "role": "switch", "name": "Make private", "nameSource": "label", "landmark": "dialog", "section": "Create a channel", "checked": true }
+    },
+    {
+      "seq": 4, "t": 14900, "type": "fill", "value": "Payments degraded — sev2 bridge", "redacted": false,
+      "page": { "app": "slack", "origin": "https://acme.slack.com", "path": "/admin/channels", "title": "Manage channels" },
+      "target": { "role": "textbox", "name": "Topic", "nameSource": "label", "landmark": "dialog", "section": "Create a channel" }
+    },
+    {
+      "seq": 5, "t": 92000, "type": "navigate", "redacted": false,
+      "page": { "app": "jira", "origin": "https://acme.atlassian.net", "path": "/jira/software/projects/INC/boards/12", "routeTemplate": "/jira/software/projects/:key/boards/:id", "title": "INC board" }
+    },
+    {
+      "seq": 6, "t": 98500, "type": "click", "redacted": false,
+      "page": { "app": "jira", "origin": "https://acme.atlassian.net", "path": "/jira/software/projects/INC/boards/12", "title": "INC board" },
+      "target": { "role": "button", "name": "Create", "nameSource": "text", "landmark": "banner" }
+    },
+    {
+      "seq": 7, "t": 104300, "type": "fill", "value": "Sev2: payments degraded", "redacted": false,
+      "page": { "app": "jira", "origin": "https://acme.atlassian.net", "path": "/jira/software/projects/INC/boards/12", "title": "INC board" },
+      "target": { "role": "textbox", "name": "Summary", "nameSource": "label", "landmark": "dialog", "section": "Create issue", "required": true }
+    },
+    {
+      "seq": 8, "t": 118700, "type": "select", "value": "Highest", "redacted": false,
+      "page": { "app": "jira", "origin": "https://acme.atlassian.net", "path": "/jira/software/projects/INC/boards/12", "title": "INC board" },
+      "target": { "role": "combobox", "name": "Priority", "nameSource": "label", "landmark": "dialog", "section": "Create issue" }
+    },
+    {
+      "seq": 9, "t": 131000, "type": "fill", "redacted": true, "redactionReason": "email",
+      "page": { "app": "jira", "origin": "https://acme.atlassian.net", "path": "/jira/software/projects/INC/boards/12", "title": "INC board" },
+      "target": { "role": "combobox", "name": "Assignee", "nameSource": "label", "landmark": "dialog", "section": "Create issue" }
+    }
+  ],
+  "narration": [
+    { "startMs": 9000, "endMs": 16000, "text": "Always make the incident channel private first, then set the topic so people joining know the severity." },
+    { "startMs": 112000, "endMs": 124000, "text": "Priority is highest for a sev2. Don't assign it to a person yet, the on-call rotation picks it up." }
+  ]
+}

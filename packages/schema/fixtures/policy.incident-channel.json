@@ -1,0 +1,40 @@
+{
+  "id": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+  "intentId": "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
+  "version": 1,
+  "scope": {
+    "origins": ["https://acme.slack.com", "https://acme.atlassian.net"],
+    "paths": ["/admin/channels*", "/jira/software/projects/INC/*"],
+    "resources": ["INC"],
+    "dataExclusions": ["*payroll*", "*compensation*"]
+  },
+  "allowed": [
+    { "id": "a1", "verb": "create_channel", "object": "channel", "args": [], "sourceText": "create the incident channel", "boundSteps": ["s1"] },
+    { "id": "a2", "verb": "set_setting", "object": "channel_visibility", "args": [{ "arg": "setting", "op": "eq", "value": "private" }], "sourceText": "keep it private", "boundSteps": ["s2"] },
+    { "id": "a3", "verb": "set_topic", "object": "channel", "args": [], "sourceText": "set the topic", "boundSteps": ["s3"] },
+    { "id": "a4", "verb": "create_issue", "object": "issue", "args": [{ "arg": "project", "op": "eq", "value": "INC" }], "sourceText": "open the tracking issue on the INC board", "boundSteps": ["s4"] },
+    { "id": "a5", "verb": "set_field", "object": "priority", "args": [], "sourceText": "set the priority", "boundSteps": ["s5"] }
+  ],
+  "denied": [
+    { "id": "d1", "verb": "invite_user", "args": [{ "arg": "email", "op": "not_matches", "value": ".*@acme\\.com$" }], "sourceText": "don't invite anyone outside the company", "boundSteps": [] },
+    { "id": "d2", "verb": "post_message", "object": "channel", "args": [{ "arg": "channel", "op": "in", "value": ["general", "announcements"] }], "sourceText": "never post in #general", "boundSteps": [] },
+    { "id": "d3", "verb": "delete_*", "sourceText": "don't delete anything", "args": [], "boundSteps": [] },
+    { "id": "d4", "verb": "set_setting", "object": "workspace_*", "args": [], "sourceText": "don't touch workspace settings", "boundSteps": [] }
+  ],
+  "approvalRequired": [
+    { "id": "p1", "verb": "send_*", "args": [], "route": "creator", "requireJustification": true, "grantTtlSeconds": 120, "sourceText": "ask me before paging anyone externally", "boundSteps": [] }
+  ],
+  "limits": {
+    "numeric": [],
+    "maxActions": 40,
+    "maxExecutions": 1,
+    "rateLimit": 30,
+    "maxNavigationHops": 4
+  },
+  "timeWindows": [],
+  "expiresAt": "2026-10-06T09:20:00.000Z",
+  "receivers": ["@acme.com"],
+  "destructiveVerbs": ["archive_channel"],
+  "allowTypedLiterals": true,
+  "mode": "live"
+}

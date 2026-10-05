@@ -1,0 +1,84 @@
+{
+  "id": "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
+  "version": 1,
+  "title": "Open a sev2 incident",
+  "goal": "Stand up an incident channel and a tracking issue for a sev2 the way our SRE team does it",
+  "context": "Recorded by the SRE lead during the payments incident on 2026-10-05.",
+  "traceId": "9f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f",
+  "policyId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+  "status": "published",
+  "createdBy": "sre-lead@acme.com",
+  "createdAt": "2026-10-05T09:20:00.000Z",
+  "params": [
+    { "name": "incident_slug", "type": "string", "required": true, "description": "Short incident identifier used in the channel name", "pattern": "^[a-z0-9-]{3,48}$", "recordedExample": "2026-10-05-payments" },
+    { "name": "summary", "type": "string", "required": true, "description": "One-line description of the incident", "recordedExample": "Sev2: payments degraded" },
+    { "name": "severity", "type": "enum", "required": true, "enumValues": ["sev1", "sev2", "sev3"], "default": "sev2", "recordedExample": "sev2" }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "title": "Create the incident channel",
+      "intent": "A dedicated channel so the bridge has one place to coordinate",
+      "app": "slack",
+      "action": { "verb": "create_channel", "object": "channel", "args": { "name": { "param": "incident_slug" } } },
+      "hints": [ { "role": "button", "name": "Create channel", "nameSource": "text", "landmark": "main", "section": "Channels" } ],
+      "dependsOn": [],
+      "optional": false,
+      "pre": [],
+      "post": [ { "describe": "the incident channel exists", "expect": { "exists": true } } ],
+      "idempotencyKey": "slack:channel:{incident_slug}"
+    },
+    {
+      "id": "s2",
+      "title": "Make the channel private",
+      "intent": "Narration: always make the incident channel private first",
+      "app": "slack",
+      "action": { "verb": "set_setting", "object": "channel_visibility", "args": { "setting": { "literal": "private" } } },
+      "hints": [ { "role": "switch", "name": "Make private", "nameSource": "label", "landmark": "dialog", "section": "Create a channel" } ],
+      "dependsOn": ["s1"],
+      "optional": false,
+      "pre": [],
+      "post": [ { "describe": "channel visibility is private", "target": { "role": "switch", "name": "Make private" }, "expect": { "checked": true } } ]
+    },
+    {
+      "id": "s3",
+      "title": "Set the channel topic to the incident summary",
+      "app": "slack",
+      "action": { "verb": "set_topic", "object": "channel", "args": { "topic": { "param": "summary" } } },
+      "hints": [ { "role": "textbox", "name": "Topic", "nameSource": "label", "landmark": "dialog", "section": "Create a channel" } ],
+      "dependsOn": ["s2"],
+      "optional": false,
+      "pre": [],
+      "post": [ { "describe": "topic matches the incident summary", "target": { "role": "textbox", "name": "Topic" }, "expect": { "valueEquals": { "param": "summary" } } } ]
+    },
+    {
+      "id": "s4",
+      "title": "Create the tracking issue",
+      "intent": "Every incident gets an issue on the INC board for the post-mortem trail",
+      "app": "jira",
+      "action": { "verb": "create_issue", "object": "issue", "args": { "summary": { "param": "summary" }, "project": { "literal": "INC" } } },
+      "hints": [ { "role": "button", "name": "Create", "nameSource": "text", "landmark": "banner" } ],
+      "dependsOn": ["s1"],
+      "optional": false,
+      "pre": [],
+      "post": [ { "describe": "an INC issue exists for this incident", "expect": { "exists": true } } ],
+      "idempotencyKey": "jira:issue:{incident_slug}"
+    },
+    {
+      "id": "s5",
+      "title": "Set issue priority from the severity",
+      "app": "jira",
+      "action": { "verb": "set_field", "object": "priority", "args": { "value": { "literal": "Highest" } } },
+      "hints": [ { "role": "combobox", "name": "Priority", "nameSource": "label", "landmark": "dialog", "section": "Create issue" } ],
+      "dependsOn": ["s4"],
+      "optional": false,
+      "condition": "severity is sev1 or sev2",
+      "pre": [],
+      "post": [ { "describe": "priority reflects the severity", "target": { "role": "combobox", "name": "Priority" }, "expect": { "textContains": "Highest" } } ]
+    }
+  ],
+  "outcomes": [
+    { "describe": "incident channel exists and is private", "expect": { "exists": true } },
+    { "describe": "INC tracking issue exists at the right priority", "expect": { "exists": true } }
+  ]
+}

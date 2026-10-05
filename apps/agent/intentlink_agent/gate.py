@@ -1,0 +1,134 @@
+"""The policy gate, implemented as an ADK before-tool callback.
+
+This is the whole security thesis expressed in twenty lines of framework hook.
+
+ADK's contract: `before_tool_callback(tool, args, ctx)` runs before every tool
+invocation. Returning a dict makes ADK use that dict as the tool's result and
+SKIP THE TOOL ENTIRELY. Returning None lets the tool run.
+
+So:
+
+    DENY      -> return a dict. The tool never executes. The model is told why,
+                 in the creator's own words, and can try a compliant route.
+    APPROVAL  -> ctx.request_confirmation(...), ADK's own human-in-the-loop
+                 mechanism. No human, no action.
+    ALLOW     -> stash the single-use token in session state and return None.
+                 The tool runs, and redeems that token to act.
+
+The model cannot route around this. It is not asked to cooperate, and nothing
+it emits can reach an effect without passing through here first.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from google.adk.agents.context import Context
+from google.adk.tools.base_tool import BaseTool
+
+from .policy_client import PolicyClient, ProposedAction
+
+# Session-state keys. Namespaced so they cannot collide with anything the model
+# puts in state.
+TOKEN_KEY = "intentlink:token"
+EXECUTION_KEY = "intentlink:execution_id"
+POLICY_KEY = "intentlink:policy_id"
+RECEIVER_KEY = "intentlink:receiver"
+ALLOWED_VALUES_KEY = "intentlink:allowed_values"
+
+# Tools that observe rather than act. They still pass through the gate so the
+# policy's scope and data-exclusion rules apply to reads as well as writes.
+GATED_TOOLS = {"perform_action", "read_page"}
+
+
+def _action_from(tool_args: dict[str, Any], ctx: Context) -> ProposedAction:
+    state = ctx.state
+    return ProposedAction(
+        execution_id=str(state.get(EXECUTION_KEY, "")),
+        step_id=str(tool_args.get("step_id", "")),
+        verb=str(tool_args.get("verb", "")),
+        object=tool_args.get("object"),
+        args=tool_args.get("args") or {},
+        origin=tool_args.get("origin"),
+        path=tool_args.get("path"),
+        target_hash=tool_args.get("target_hash"),
+        target_name=tool_args.get("target_name"),
+    )
+
+
+def _blocked(decision: Any) -> dict[str, Any]:
+    """The payload the model receives instead of a tool result.
+
+    Deliberately actionable: it names the rule in the creator's own words and,
+    when the engine offers one, a compliant alternative. A block should teach
+    the agent what it may do, not merely that it failed.
+    """
+    body: dict[str, Any] = {
+        "intentlink_blocked": True,
+        "reason": decision.reason,
+    }
+    if decision.source_text:
+        body["boundary"] = decision.source_text
+    if decision.rule_id:
+        body["rule_id"] = decision.rule_id
+    if decision.suggestion:
+        body["suggestion"] = decision.suggestion
+    return body
+
+
+def make_policy_gate(client: PolicyClient | None = None):
+    """Build the before-tool callback. Injectable client keeps it testable."""
+    policy = client or PolicyClient()
+
+    async def before_tool(
+        tool: BaseTool,
+        args: dict[str, Any],
+        ctx: Context,
+    ) -> dict[str, Any] | None:
+        if tool.name not in GATED_TOOLS:
+            return None
+
+        state = ctx.state
+        policy_id = state.get(POLICY_KEY)
+        if not policy_id:
+            # No policy pinned to this session means no authority exists at
+            # all. Fail closed rather than treating absence as permission.
+            return {
+                "intentlink_blocked": True,
+                "reason": "No IntentLink is bound to this session, so nothing is authorized.",
+            }
+
+        action = _action_from(args, ctx)
+        decision = await policy.decide(
+            str(policy_id),
+            action,
+            receiver=state.get(RECEIVER_KEY),
+            allowed_values=state.get(ALLOWED_VALUES_KEY),
+        )
+
+        if decision.outcome == "DENY":
+            return _blocked(decision)
+
+        if decision.outcome == "APPROVAL":
+            ctx.request_confirmation(
+                hint=decision.reason,
+                payload={
+                    "verb": action.verb,
+                    "object": action.object,
+                    "target": action.target_name,
+                    "boundary": decision.source_text,
+                    "route": decision.approval_route,
+                },
+            )
+            return {
+                "intentlink_blocked": True,
+                "awaiting_approval": True,
+                "reason": decision.reason,
+                "route": decision.approval_route,
+            }
+
+        # ALLOW. Hand the tool its single-use authorization and step aside.
+        state[TOKEN_KEY] = decision.token
+        return None
+
+    return before_tool

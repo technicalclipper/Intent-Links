@@ -1,7 +1,14 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/schema" },
-    { "path": "packages/a11y" }
+    {
+      "path": "packages/schema"
+    },
+    {
+      "path": "packages/a11y"
+    },
+    {
+      "path": "packages/policy"
+    }
   ]
 }

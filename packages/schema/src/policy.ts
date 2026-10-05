@@ -32,6 +32,8 @@ export const ArgConstraint = z
   })
   .strict();
 
+export type ArgConstraint = z.infer<typeof ArgConstraint>;
+
 export const ActionRule = z
   .object({
     id: z.string().max(64),
@@ -84,6 +86,9 @@ export const Limits = z
   })
   .strict();
 
+export type Scope = z.infer<typeof Scope>;
+export type Limits = z.infer<typeof Limits>;
+
 export const TimeWindow = z
   .object({
     /** IANA zone, e.g. "Asia/Kolkata". */
@@ -93,6 +98,8 @@ export const TimeWindow = z
     endMinute: z.number().int().min(0).max(1439),
   })
   .strict();
+
+export type TimeWindow = z.infer<typeof TimeWindow>;
 
 /**
  * Destructive verbs are denied unless EXPLICITLY allowed, even when the policy

@@ -158,7 +158,11 @@ test("approval-required actions return APPROVAL with their route", () => {
 /* ------------------------------- lifecycle -------------------------------- */
 
 test("expiry denies, mid-execution included", () => {
-  const d = evaluate(basePolicy, act(), ctx({ now: new Date("2026-10-07T00:00:00.000Z") }));
+  // Sets its own expiry rather than leaning on the fixture's. The fixture is
+  // also used for manual testing, so its date moves; a test that depends on
+  // it silently stops testing expiry when it does.
+  const p = policyWith({ expiresAt: "2026-10-06T09:20:00.000Z" });
+  const d = evaluate(p, act(), ctx({ now: new Date("2026-10-07T00:00:00.000Z") }));
   assert.equal(d.outcome, "DENY");
   assert.match(d.reason, /expired/);
 });

@@ -32,6 +32,13 @@ const els = {
   blockReason: $("block-reason"),
   blockBoundary: $("block-boundary"),
   blockSuggestion: $("block-suggestion"),
+  publish: $("publish"),
+  boundaries: $("boundaries") as HTMLTextAreaElement,
+  create: $("create") as HTMLButtonElement,
+  result: $("result"),
+  link: $("link") as HTMLAnchorElement,
+  copy: $("copy") as HTMLButtonElement,
+  working: $("working"),
 };
 
 async function ask(message: PanelMessage): Promise<PanelState | undefined> {
@@ -132,6 +139,10 @@ function render(state: PanelState | undefined): void {
   // Always zero, by construction. Stated as a live number rather than a claim.
   els.coords.textContent = "0";
 
+  // Offered once there is something worth publishing and recording has stopped
+  // - compiling a trace that is still growing would compile a half-done task.
+  els.publish.hidden = events.length === 0 || active;
+
   els.empty.hidden = events.length > 0;
   els.steps.textContent = "";
   for (const event of events) els.steps.appendChild(renderStep(event));
@@ -152,6 +163,38 @@ function render(state: PanelState | undefined): void {
     if (block.suggestion) els.blockSuggestion.textContent = block.suggestion;
   }
 }
+
+els.create.addEventListener("click", async () => {
+  els.create.disabled = true;
+  els.working.hidden = false;
+  els.result.hidden = true;
+  try {
+    const published = await ask({
+      type: "panel:publish",
+      boundaries: els.boundaries.value.trim(),
+    } as PanelMessage & { boundaries: string });
+
+    const link = (published as unknown as { url?: string; error?: string }) ?? {};
+    if (link.url) {
+      els.link.textContent = link.url;
+      els.link.href = link.url;
+      els.result.hidden = false;
+    } else {
+      els.working.textContent = link.error ?? "Could not publish.";
+      return;
+    }
+  } finally {
+    els.create.disabled = false;
+    els.working.hidden = true;
+    els.working.textContent = "Compiling the recording, then your boundaries…";
+  }
+});
+
+els.copy.addEventListener("click", async () => {
+  await navigator.clipboard.writeText(els.link.textContent ?? "");
+  els.copy.textContent = "Copied";
+  setTimeout(() => (els.copy.textContent = "Copy"), 1200);
+});
 
 els.record.addEventListener("click", async () => {
   render(await ask({ type: "panel:startRecording" }));

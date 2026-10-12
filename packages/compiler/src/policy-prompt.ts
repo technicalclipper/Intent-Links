@@ -26,7 +26,11 @@ export const POLICY_RESPONSE_SCHEMA = {
         properties: {
           sourceText: {
             type: "string",
-            description: "the creator's own words that produced this rule, verbatim",
+            description:
+              "the creator's own words that produced this rule, verbatim. When "
+              + "no sentence of theirs produced it (an allow you synthesised to "
+              + "cover the workflow), write one short plain-English sentence a "
+              + "person would recognise - never a verb signature or argument list.",
           },
           kind: { type: "string", enum: ["allow", "deny", "approval"] },
           verb: {

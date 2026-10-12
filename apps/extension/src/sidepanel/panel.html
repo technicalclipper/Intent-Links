@@ -39,6 +39,18 @@
       <div class="block-suggestion" id="block-suggestion" hidden></div>
     </section>
 
+    <section class="publish" id="publish" hidden>
+      <label for="boundaries">Boundaries — in plain English</label>
+      <textarea id="boundaries" rows="4"
+        placeholder="Don't invite anyone outside the company, never post in #general, don't delete anything. Ask me before paging anyone."></textarea>
+      <button id="create" class="primary">Create IntentLink</button>
+      <div class="result" id="result" hidden>
+        <a id="link" target="_blank" rel="noreferrer"></a>
+        <button id="copy">Copy</button>
+      </div>
+      <div class="working" id="working" hidden>Compiling the recording, then your boundaries…</div>
+    </section>
+
     <ol class="steps" id="steps"></ol>
 
     <p class="empty" id="empty">

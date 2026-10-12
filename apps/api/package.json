@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@intentlink/policy": "*",
-    "@intentlink/schema": "*"
+    "@intentlink/schema": "*",
+    "@intentlink/compiler": "*"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

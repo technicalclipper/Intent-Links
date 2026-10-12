@@ -114,6 +114,7 @@ export type PanelMessage =
   | { type: "panel:resumeRecording" }
   | { type: "panel:deleteEvent"; seq: number }
   | { type: "panel:getState" }
+  | { type: "panel:publish"; boundaries: string }
   | { type: "panel:runIntent"; intentId: string; params: Record<string, string> }
   | { type: "panel:abort" }
   | { type: "panel:approve"; requestId: string }

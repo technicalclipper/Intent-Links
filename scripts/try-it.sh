@@ -7,6 +7,7 @@
 #   ./scripts/try-it.sh compile   recording -> workflow -> policy  (needs a key)
 #   ./scripts/try-it.sh policy    start the policy service and poke it with curl
 #   ./scripts/try-it.sh loop      the full agent loop, including a real block
+#   ./scripts/try-it.sh serve     run the API so the extension can publish to it
 #   ./scripts/try-it.sh extension print how to load the extension in Chrome
 #
 set -euo pipefail
@@ -106,32 +107,62 @@ cmd_loop() {
     .venv/bin/python -m pytest tests/test_loop.py -q )
 }
 
+cmd_serve() {
+  need_key
+  local secret; secret=$(openssl rand -hex 32)
+  bold "API on http://127.0.0.1:8080"
+  cat <<EOF
+
+  This is what the extension publishes to, and where consent pages are served.
+  Leave it running, then:
+
+    1. ./scripts/try-it.sh extension     (load the extension, once)
+    2. Record something in the side panel
+    3. Type your boundaries in plain English
+    4. Press Create IntentLink  ->  a link appears
+    5. Open the link
+
+  Ctrl-C to stop.
+
+EOF
+  INTENTLINK_TOKEN_SECRET="$secret" PORT=8080 \
+    node --env-file-if-exists="$ROOT/.env" apps/api/dist/server.js
+}
+
 cmd_extension() {
   bold "Loading the extension"
   cat <<EOF
 
-  1. Build it:        ./scripts/try-it.sh build
-  2. Open Chrome at:  chrome://extensions
-  3. Turn on          Developer mode  (top right)
-  4. Click            Load unpacked
-  5. Choose           $ROOT/apps/extension/dist
-  6. Pin IntentLink, open any site, click the icon to open the side panel
-  7. Press Record and do something - a few clicks and a form field
+  Once:
+    1. ./scripts/try-it.sh build
+    2. Chrome -> chrome://extensions
+    3. Turn on Developer mode (top right)
+    4. Load unpacked -> $ROOT/apps/extension/dist
+    5. Pin IntentLink
 
-  What to look for in the panel:
-    - each step described in words, with the descriptor underneath
-    - "0 coordinates captured" - the claim, stated as a live number
-    - a password or API-key field showing "value withheld"
+  Then, with the API running (./scripts/try-it.sh serve in another terminal):
+    6. Open any site, click the IntentLink icon to open the side panel
+    7. Record -> do a short task -> Stop
+    8. Type boundaries, e.g.
+         don't invite anyone outside the company, don't delete anything,
+         ask me before sending email
+    9. Create IntentLink -> open the link it gives you
+
+  In the side panel, look for:
+    - each step in words, with its a11y descriptor underneath
+    - "0 coordinates captured" - the claim as a live number
+    - "value withheld" on any password or key field
 
 EOF
 }
 
 case "${1:-}" in
   build)     cmd_build ;;
+  serve)     cmd_serve ;;
   test)      cmd_test ;;
   compile)   cmd_compile ;;
   policy)    cmd_policy ;;
   loop)      cmd_loop ;;
   extension) cmd_extension ;;
-  *) sed -n '3,11p' "$0" | cut -c3- ;;
+  *) sed -n '3,12p' "$0" | cut -c3- ;;
 esac

@@ -116,6 +116,53 @@ async function deleteEvent(seq: number): Promise<void> {
   await setRecording({ ...state, events });
 }
 
+/* -------------------------------- publishing ------------------------------ */
+
+const API_BASE_KEY = "intentlink:apiBase";
+const DEFAULT_API = "http://127.0.0.1:8080";
+
+async function apiBase(): Promise<string> {
+  const stored = await chrome.storage.local.get(API_BASE_KEY);
+  return (stored[API_BASE_KEY] as string | undefined) ?? DEFAULT_API;
+}
+
+/**
+ * Hand the recording to the server, which compiles it and returns a link.
+ *
+ * Compilation happens server-side rather than here because it needs a model
+ * key, and an API key shipped inside an extension is a key given away to
+ * everyone who installs it.
+ */
+async function publishRecording(boundaries: string): Promise<unknown> {
+  const state = await getRecording();
+  if (state.events.length === 0) return { error: "nothing recorded yet" };
+
+  const trace = {
+    traceId: crypto.randomUUID(),
+    createdBy: "creator",
+    createdAt: new Date(state.startedAt ?? Date.now()).toISOString(),
+    sessions: 1,
+    durationMs: Math.max(0, Date.now() - (state.startedAt ?? Date.now())),
+    apps: state.apps,
+    events: state.events,
+  };
+
+  try {
+    const res = await fetch(`${await apiBase()}/v1/publish`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ trace, boundaries, createdBy: "creator" }),
+    });
+    const body = (await res.json()) as Record<string, unknown>;
+    if (!res.ok) return { error: (body["error"] as string) ?? `publish failed (${res.status})` };
+    return body;
+  } catch (err) {
+    return {
+      error: err instanceof Error ? `cannot reach the API: ${err.message}` : "publish failed",
+    };
+  }
+}
+
 /* --------------------------------- plumbing ------------------------------- */
 
 async function broadcastToTabs(message: unknown): Promise<void> {
@@ -172,6 +219,9 @@ chrome.runtime.onMessage.addListener((message: ContentMessage | PanelMessage, _s
 
       case "panel:getState":
         return respond(await panelState());
+
+      case "panel:publish":
+        return respond(await publishRecording(message.boundaries));
 
       case "panel:abort":
         await setExecution({ ...IDLE_EXECUTION, status: "aborted" });

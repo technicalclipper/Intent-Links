@@ -146,3 +146,50 @@ button.recording { border-color: var(--deny); color: var(--deny); }
 
 .empty { padding: 24px 12px; color: var(--dim); font-size: 12px; }
 [hidden] { display: none !important; }
+
+/* ------------------------------- publishing ------------------------------- */
+
+.publish { padding: 0 12px 14px; }
+.publish label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 6px;
+}
+.publish textarea {
+  width: 100%;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  font: 13px/1.5 var(--sans);
+  resize: vertical;
+}
+.publish textarea:focus { outline: none; border-color: #38404e; }
+.publish > button { width: 100%; margin-top: 8px; }
+
+.working { margin-top: 8px; font-size: 12px; color: var(--dim); }
+
+.result {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--allow);
+  border-radius: 6px;
+  background: #0f1a17;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.result a {
+  flex: 1;
+  color: var(--allow);
+  font-family: var(--mono);
+  font-size: 12px;
+  word-break: break-all;
+  text-decoration: none;
+}
+.result button { padding: 4px 10px; font-size: 11px; }

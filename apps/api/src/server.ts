@@ -21,6 +21,7 @@ import {
   ProposedAction,
   type Decision,
 } from "@intentlink/schema";
+import { consentPage, publish, type PublishedLink } from "./publish.js";
 import {
   MemoryTokenStore,
   appendEntry,
@@ -66,6 +67,8 @@ export interface Stores {
   counters: Map<string, { actionsUsed: number; recent: number[] }>;
   /** Policy hash pinned when an execution started. */
   pinned: Map<string, string>;
+  /** Published IntentLinks, by their short link id. */
+  links: Map<string, PublishedLink>;
   tokens: MemoryTokenStore;
 }
 
@@ -75,11 +78,21 @@ export function emptyStores(): Stores {
     audit: new Map(),
     counters: new Map(),
     pinned: new Map(),
+    links: new Map(),
     tokens: new MemoryTokenStore(),
   };
 }
 
 /* --------------------------------- helpers -------------------------------- */
+
+function html(res: ServerResponse, status: number, body: string): void {
+  res.writeHead(status, {
+    "content-type": "text/html; charset=utf-8",
+    "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store",
+  });
+  res.end(body);
+}
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -242,6 +255,15 @@ export async function handleRedeem(
   return { status: 200, payload: { ok: true, claims: result.claims } };
 }
 
+/** Absolute base for links we hand out, honouring a proxy when deployed. */
+function baseUrl(req: IncomingMessage): string {
+  const configured = process.env.INTENTLINK_PUBLIC_URL;
+  if (configured) return configured.replace(/\/$/, "");
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http";
+  const host = (req.headers["x-forwarded-host"] as string | undefined) ?? req.headers.host ?? "localhost";
+  return `${proto}://${host}`;
+}
+
 /* --------------------------------- routing -------------------------------- */
 
 export function createApp(stores: Stores, secret: string, clock: () => Date = () => new Date()) {
@@ -252,6 +274,59 @@ export function createApp(stores: Stores, secret: string, clock: () => Date = ()
 
         if (req.method === "GET" && url.pathname === "/healthz") {
           return json(res, 200, { ok: true });
+        }
+
+        if (req.method === "POST" && url.pathname === "/v1/publish") {
+          const body = (await readJson(req)) as {
+            trace?: unknown;
+            boundaries?: string;
+            createdBy?: string;
+            title?: string;
+          };
+          if (!body.trace || typeof body.boundaries !== "string") {
+            return json(res, 400, { error: "trace and boundaries are required" });
+          }
+
+          const link = await publish({
+            trace: body.trace,
+            boundaries: body.boundaries,
+            ...(body.createdBy !== undefined ? { createdBy: body.createdBy } : {}),
+            ...(body.title !== undefined ? { title: body.title } : {}),
+          });
+
+          // The policy is registered under the same id the agent will pin, so
+          // publishing and executing cannot disagree about what was consented to.
+          stores.policies.set(link.policy.id, link.policy);
+          stores.links.set(link.id, link);
+
+          return json(res, 200, {
+            id: link.id,
+            url: `${baseUrl(req)}/i/${link.id}`,
+            runnable: link.runnable,
+            diagnostics: link.diagnostics,
+            bindings: link.bindings,
+            params: link.intent.params,
+            steps: link.intent.steps.length,
+          });
+        }
+
+        if (req.method === "GET" && url.pathname.startsWith("/i/")) {
+          const link = stores.links.get(url.pathname.slice(3));
+          if (!link) return html(res, 404, "<h1>No such IntentLink</h1>");
+          return html(res, 200, consentPage(link, baseUrl(req)));
+        }
+
+        if (req.method === "GET" && url.pathname.startsWith("/v1/links/")) {
+          const link = stores.links.get(url.pathname.slice("/v1/links/".length));
+          if (!link) return json(res, 404, { error: "no such link" });
+          // The receiver's agent needs the workflow and the policy id; the
+          // policy itself stays server-side, where it is evaluated.
+          return json(res, 200, {
+            id: link.id,
+            intent: link.intent,
+            policyId: link.policy.id,
+            runnable: link.runnable,
+          });
         }
 
         if (req.method === "PUT" && url.pathname === "/v1/policies") {

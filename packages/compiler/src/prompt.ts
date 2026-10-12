@@ -156,6 +156,12 @@ OTHER RULES
 
 * Group related events into one step. Opening a dialog, filling three fields
   and submitting is ONE step, not five.
+* But do NOT merge actions a boundary might need to govern separately. Setting
+  a channel's visibility is its own step even though it happens in the same
+  dialog as creating the channel, because a creator may want to permit one and
+  forbid the other. Over-merging silently removes the seams policy attaches to.
+  Observed failure: a model that collapsed this workflow into two steps lost
+  the visibility constant, the board key and the severity condition with them.
 * dependsOn captures real ordering constraints, not merely observed sequence.
 * Skip events that achieved nothing: stray clicks, navigation that was undone,
   a field filled then cleared.

@@ -45,7 +45,21 @@ export interface Candidate {
   tier: ResolutionTier;
   /** Stable handle for this element within the current page snapshot. */
   handle: number;
+  /**
+   * sha256 of the descriptor, computed here and echoed by the agent so the
+   * issued token binds to this exact element. The agent must never compute or
+   * invent it: a model-supplied hash is a guess, and a guess that happens to
+   * be well-formed would bind a token to the wrong control.
+   */
+  targetHash: string;
 }
+
+/**
+ * A candidate before its hash is attached. resolve() is synchronous and Web
+ * Crypto is not, so hashing happens at the boundary where candidates are sent
+ * rather than inside the scoring loop.
+ */
+export type ScoredCandidate = Omit<Candidate, "targetHash">;
 
 export interface ResolveResult {
   candidates: Candidate[];

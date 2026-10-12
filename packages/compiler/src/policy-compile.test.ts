@@ -98,9 +98,33 @@ test("the prompt offers verbs the workflow does NOT perform", () => {
 
 test("rules become allow / deny / approval buckets", () => {
   const policy = buildPolicy(clone(), CTX);
-  assert.equal(policy.allowed.length, 5);
+  // Five from the creator, plus the implicit observation allow.
+  assert.equal(policy.allowed.length, 6);
   assert.equal(policy.denied.length, 2);
   assert.equal(policy.approvalRequired.length, 1);
+});
+
+test("observation is permitted implicitly, so a workflow can start at all", () => {
+  // No creator writes "you may look at the screen", but read_page is how the
+  // agent perceives anything. Without this every policy denies observation by
+  // default - which is exactly what happened in the first live run.
+  const policy = buildPolicy(clone(), CTX);
+  const observe = policy.allowed.find((r) => r.verb === "read_page");
+  assert.ok(observe, "reading the page must be permitted");
+  assert.match(observe.sourceText ?? "", /implicit/);
+});
+
+test("an explicit read_page rule is not duplicated", () => {
+  const raw = clone();
+  raw.rules.push({
+    sourceText: "it may read anything in the incident channel",
+    kind: "allow",
+    verb: "read_page",
+    boundSteps: [],
+    reasoning: "explicit",
+  });
+  const policy = buildPolicy(raw, CTX);
+  assert.equal(policy.allowed.filter((r) => r.verb === "read_page").length, 1);
 });
 
 test("every rule keeps the creator's sentence for the block screen", () => {

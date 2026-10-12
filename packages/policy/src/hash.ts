@@ -9,26 +9,12 @@
  */
 
 import { createHash } from "node:crypto";
-import type { Policy } from "@intentlink/schema";
+import { canonicalize as canon, type Policy } from "@intentlink/schema";
 
-/**
- * Deterministic JSON: object keys sorted, undefined dropped, arrays preserved
- * in order (array order is meaningful — rule precedence depends on it).
- */
-export function canonicalize(value: unknown): string {
-  return JSON.stringify(sortValue(value));
-}
-
-function sortValue(value: unknown): unknown {
-  if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map(sortValue);
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-    const v = (value as Record<string, unknown>)[key];
-    if (v !== undefined) out[key] = sortValue(v);
-  }
-  return out;
-}
+// Re-exported from the schema package, which owns the one implementation.
+// The extension hashes the same descriptors with Web Crypto, and two copies of
+// this function would be two chances to disagree about key order.
+export { canonicalize } from "@intentlink/schema";
 
 export function sha256(input: string): string {
   return createHash("sha256").update(input, "utf8").digest("hex");
@@ -40,10 +26,10 @@ export function sha256(input: string): string {
  */
 export function policyHash(policy: Policy): string {
   const { hash: _ignored, ...rest } = policy;
-  return sha256(canonicalize(rest));
+  return sha256(canon(rest));
 }
 
 /** Hash of a resolved element descriptor. Tokens are bound to this. */
 export function targetHash(descriptor: unknown): string {
-  return sha256(canonicalize(descriptor));
+  return sha256(canon(descriptor));
 }

@@ -41,17 +41,32 @@ ALLOWED_VALUES_KEY = "intentlink:allowed_values"
 GATED_TOOLS = {"perform_action", "read_page"}
 
 
-def _action_from(tool_args: dict[str, Any], ctx: Context) -> ProposedAction:
+def _action_from(tool_args: dict[str, Any], ctx: Context, tool_name: str) -> ProposedAction:
     state = ctx.state
+    # Observation tools carry no verb of their own. Falling through with an
+    # empty one made every read propose verb="" - which matched no allow rule,
+    # was denied by default, and left the agent unable to see the page at all.
+    verb = str(tool_args.get("verb") or tool_name)
     return ProposedAction(
         execution_id=str(state.get(EXECUTION_KEY, "")),
         step_id=str(tool_args.get("step_id", "")),
-        verb=str(tool_args.get("verb", "")),
+        verb=verb,
         object=tool_args.get("object"),
         args=tool_args.get("args") or {},
         origin=tool_args.get("origin"),
         path=tool_args.get("path"),
-        target_hash=tool_args.get("target_hash"),
+        # Only a well-formed digest is forwarded. A model-supplied hash is a
+        # guess; a malformed one made the policy service reject the whole
+        # action as invalid (400), which surfaced as an unexplained block
+        # rather than a policy decision. Dropping it costs the token its
+        # binding for that call, which is strictly better than a false block.
+        target_hash=(
+            th
+            if isinstance(th := tool_args.get("target_hash"), str)
+            and len(th) == 64
+            and all(c in "0123456789abcdef" for c in th.lower())
+            else None
+        ),
         target_name=tool_args.get("target_name"),
     )
 
@@ -98,7 +113,7 @@ def make_policy_gate(client: PolicyClient | None = None):
                 "reason": "No IntentLink is bound to this session, so nothing is authorized.",
             }
 
-        action = _action_from(args, ctx)
+        action = _action_from(args, ctx, tool.name)
         decision = await policy.decide(
             str(policy_id),
             action,

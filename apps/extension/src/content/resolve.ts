@@ -14,7 +14,7 @@
 
 import { describe } from "@intentlink/a11y";
 import type { ElementDescriptor } from "@intentlink/schema";
-import type { Candidate, ResolutionTier } from "../shared/protocol.js";
+import type { ResolutionTier, ScoredCandidate } from "../shared/protocol.js";
 
 /** Acting threshold. Below this we ask a human rather than guess. */
 export const CONFIDENCE_FLOOR = 0.62;
@@ -239,12 +239,12 @@ export interface ResolveOptions {
 export function resolve(
   hints: ElementDescriptor[],
   opts: ResolveOptions = {},
-): { candidates: Candidate[]; tier: ResolutionTier; handles: Map<number, Element> } {
+): { candidates: ScoredCandidate[]; tier: ResolutionTier; handles: Map<number, Element> } {
   const limit = opts.limit ?? 5;
   const elements = interactiveElements(opts.root);
   const handles = new Map<number, Element>();
 
-  const scored: Candidate[] = [];
+  const scored: ScoredCandidate[] = [];
   elements.forEach((el, index) => {
     const descriptor = describe(el, { includeValue: false });
     let best = 0;

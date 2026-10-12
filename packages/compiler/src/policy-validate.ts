@@ -161,6 +161,22 @@ export function buildPolicy(raw: RawPolicy, ctx: PolicyBuildContext): Policy {
     }
   });
 
+  /*
+   * Reading the current page is how the agent perceives anything, and no
+   * creator writes "you may look at the screen". Without this every policy
+   * denies observation by default and the workflow cannot start. Scope rules
+   * still apply: the policy's origins and paths bound WHERE it may look.
+   */
+  if (!allowed.some((r) => r.verb === "read_page" || r.verb === "*")) {
+    allowed.push({
+      id: "a0",
+      verb: "read_page",
+      args: [],
+      sourceText: "implicit: the agent may observe the pages it is scoped to",
+      boundSteps: [],
+    });
+  }
+
   const now = ctx.now ?? new Date();
   const expiryHours = raw.expiryHours && raw.expiryHours > 0 ? raw.expiryHours : 24;
 

@@ -12,6 +12,7 @@ import type { ElementDescriptor } from "@intentlink/schema";
 import { installRecorder, pageContext } from "./capture.js";
 import { compactTree, resolve, CONFIDENCE_FLOOR } from "./resolve.js";
 import { clearHighlight, highlight, performAction } from "./perform.js";
+import { targetHash } from "../shared/hash.js";
 import type { AssertRequest, AssertResult, ContentMessage, WorkerMessage } from "../shared/protocol.js";
 
 const recorder = installRecorder();
@@ -96,11 +97,17 @@ chrome.runtime.onMessage.addListener((message: WorkerMessage, _sender, respond) 
       // The compact tree only travels when the deterministic tiers came up
       // short — tier 3 is the expensive path and should stay off the hot one.
       const needsAssist = tier === "none";
-      respond({
-        candidates,
-        page: pageContext(),
-        ...(needsAssist ? { tree: compactTree() } : {}),
-      });
+      // Hashing is async (Web Crypto), so the reply is resolved rather than
+      // returned; `return true` keeps the message channel open for it.
+      void Promise.all(
+        candidates.map(async (c) => ({ ...c, targetHash: await targetHash(c.descriptor) })),
+      ).then((hashed) =>
+        respond({
+          candidates: hashed,
+          page: pageContext(),
+          ...(needsAssist ? { tree: compactTree() } : {}),
+        }),
+      );
       return true;
     }
 

@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "start": "node dist/server.js",
+    "start": "node --env-file-if-exists=../../.env dist/server.js",
     "test": "tsc -b && node --test dist/*.test.js"
   },
   "dependencies": {
     "@intentlink/policy": "*",
     "@intentlink/schema": "*"
   },
-  "devDependencies": { "typescript": "^5.6.3", "@types/node": "^22" }
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22"
+  }
 }

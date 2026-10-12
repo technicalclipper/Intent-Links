@@ -142,6 +142,9 @@ export function parseJson(text: string): RawCompilation {
 export function geminiClient(options?: {
   apiKey?: string;
   model?: string;
+  /** Total attempts for transient (503) failures. */
+  maxAttempts?: number;
+  onRetry?: (attempt: number, message: string) => void;
 }): ModelClient {
   return {
     async generate({ systemInstruction, prompt, responseSchema }) {
@@ -162,23 +165,53 @@ export function geminiClient(options?: {
       const { GoogleGenAI } = await import("@google/genai");
       const ai = new GoogleGenAI({ apiKey });
 
-      const response = await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: {
-          systemInstruction,
-          responseMimeType: "application/json",
-          responseSchema: responseSchema as never,
-          // Compilation is a judgment we want to be reproducible for the same
-          // recording; creativity here shows up as a workflow that drifts
-          // between runs of the same input.
-          temperature: 0.1,
-        },
-      });
+      /*
+       * Retry transient failures with backoff.
+       *
+       * 503 UNAVAILABLE ("high demand") is common on popular models and showed
+       * up on the very first real call during model evaluation. A demo that
+       * dies because a flash model was briefly busy is not a demo, and the
+       * compile path runs once per IntentLink, so waiting is cheap.
+       *
+       * 429 is NOT retried here: on the free tier it means a daily quota of
+       * zero for that model, and the retry delay is measured in hours. Failing
+       * immediately with the real message is more useful than hanging.
+       */
+      const maxAttempts = options?.maxAttempts ?? 4;
+      let lastError: unknown;
 
-      const text = response.text;
-      if (!text) throw new Error("Gemini returned an empty response");
-      return text;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+              systemInstruction,
+              responseMimeType: "application/json",
+              responseSchema: responseSchema as never,
+              // Compilation is a judgment we want reproducible for the same
+              // recording; creativity here shows up as a workflow that drifts
+              // between runs of the same input.
+              temperature: 0.1,
+            },
+          });
+
+          const text = response.text;
+          if (!text) throw new Error("Gemini returned an empty response");
+          return text;
+        } catch (err) {
+          lastError = err;
+          const message = err instanceof Error ? err.message : String(err);
+          const transient = /\b(503|UNAVAILABLE|high demand|overloaded|deadline)\b/i.test(message);
+          if (!transient || attempt === maxAttempts) throw err;
+
+          const backoffMs = Math.min(8000, 500 * 2 ** (attempt - 1)) + Math.random() * 400;
+          options?.onRetry?.(attempt, message);
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        }
+      }
+
+      throw lastError instanceof Error ? lastError : new Error("Gemini call failed");
     },
   };
 }

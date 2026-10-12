@@ -140,7 +140,7 @@ test("a literal that WAS demonstrated is accepted", () => {
   );
 });
 
-test("reconstructing a redacted value is rejected", () => {
+test("a redacted value cannot be reconstructed as a literal", () => {
   const raw = clone();
   raw.steps.push({
     id: "s9",
@@ -148,14 +148,29 @@ test("reconstructing a redacted value is rejected", () => {
     app: "jira",
     verb: "set_field",
     object: "assignee",
-    // Event 9 is the redacted assignee. Emitting any literal for a step
-    // derived from it means the model tried to reconstruct what the recorder
-    // deliberately withheld.
-    args: [{ name: "assignee", kind: "literal", value: "Sev2: payments degraded" }],
+    // Event 9 is the redacted assignee. evidenceFor() never admits a redacted
+    // event's value, so nothing can justify emitting one.
+    args: [{ name: "assignee", kind: "literal", value: "sre-oncall@acme.com" }],
     dependsOn: ["s4"],
     sourceEvents: [9],
   });
-  expectProblem(raw, /redacted event/);
+  expectProblem(raw, /not evidenced by the events this step cites/);
+});
+
+test("a legitimate literal survives on a step that also touches a redacted event", () => {
+  // The case real models kept failing. create_issue groups the summary, the
+  // board key INC, and the redacted assignee; an earlier step-level redaction
+  // ban rejected INC for the company its event kept. The restriction belongs
+  // on the value, not the step.
+  const raw = clone();
+  const createIssue = raw.steps.find((s) => s.id === "s4")!;
+  createIssue.sourceEvents = [5, 6, 7, 9];
+
+  const intent = toIntentLink(raw, { ...CTX, trace });
+  assert.deepEqual(
+    intent.steps.find((s) => s.id === "s4")!.action.args["project"],
+    { literal: "INC" },
+  );
 });
 
 test("a tool-shaped verb is rejected", () => {

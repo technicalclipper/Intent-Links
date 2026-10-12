@@ -173,7 +173,6 @@ export function toIntentLink(raw: RawCompilation, ctx: ValidationContext): Inten
   const declared = new Set(raw.params.map((p) => p.name));
   const stepIds = new Set(raw.steps.map((s) => s.id));
   const validSeqs = new Set(ctx.trace.events.map((e) => e.seq));
-  const redacted = redactedSeqs(ctx.trace);
 
   for (const param of raw.params) {
     if (!SNAKE.test(param.name)) {
@@ -219,7 +218,6 @@ export function toIntentLink(raw: RawCompilation, ctx: ValidationContext): Inten
       }
     }
 
-    const citesRedacted = step.sourceEvents.some((s) => redacted.has(s));
     const evidence = evidenceFor(ctx.trace, step.sourceEvents);
 
     for (const arg of step.args) {
@@ -238,6 +236,17 @@ export function toIntentLink(raw: RawCompilation, ctx: ValidationContext): Inten
        * granted permission to use something no human ever demonstrated.
        * Booleans and numbers are excused: they are states the model reads off
        * a toggle rather than values quoted from the page.
+       *
+       * This check also subsumes redaction, which is why there is no separate
+       * rule for it. evidenceFor() never admits a redacted event's VALUE, so a
+       * reconstructed secret cannot be evidenced and is rejected here.
+       *
+       * An earlier version banned every literal on any step that merely CITED
+       * a redacted event. Real models failed it repeatedly and were right to:
+       * create_issue legitimately groups the summary, the board key INC, and
+       * the redacted assignee, and a step-level ban rejected INC for the
+       * company its event kept. The restriction belongs on the value, not the
+       * step.
        */
       const value = arg.value;
       const structural = /^(true|false|on|off|-?\d+(\.\d+)?)$/i.test(value);
@@ -247,13 +256,7 @@ export function toIntentLink(raw: RawCompilation, ctx: ValidationContext): Inten
         );
       }
 
-      if (citesRedacted && !structural) {
-        // The one thing worse than inventing a value: reconstructing a secret
-        // the recorder deliberately withheld.
-        problems.push(
-          `step ${step.id}: emits a literal for an argument derived from a redacted event; it must be a parameter`,
-        );
-      }
+
     }
   }
 

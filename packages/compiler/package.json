@@ -17,7 +17,8 @@
   "dependencies": {
     "@intentlink/schema": "*",
     "@google/genai": "^2.28.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@intentlink/policy": "*"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

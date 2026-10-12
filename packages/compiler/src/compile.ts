@@ -135,16 +135,40 @@ export function parseJson(text: string): RawCompilation {
 /* ----------------------------- the real client ---------------------------- */
 
 /**
+ * Tried in order when the configured model is overloaded. All were confirmed
+ * available on the AI Studio free tier; Pro models are not (they return a
+ * quota of literally zero), so there is no point listing one here.
+ */
+const DEFAULT_FALLBACKS = [
+  "gemini-3.7-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-flash-latest",
+];
+
+/**
  * Gemini-backed client. Compile-time reasoning runs once per IntentLink and
  * quality matters far more than latency, so this should point at a Pro-tier
  * model while the run-time resolver uses a Flash-tier one.
  */
 export function geminiClient(options?: {
   apiKey?: string;
+  /** Primary model. Falls back through `fallbacks` when it is unavailable. */
   model?: string;
-  /** Total attempts for transient (503) failures. */
+  /**
+   * Models to try when the primary is overloaded. A live demo that dies
+   * because one flash model was momentarily busy is not a demo, and 503s are
+   * routine on popular models - the first real end-to-end run hit three in a
+   * row. Ordered most-capable first.
+   */
+  fallbacks?: string[];
+  /** Transient-failure attempts per model before moving to the next. */
   maxAttempts?: number;
   onRetry?: (attempt: number, message: string) => void;
+  onFallback?: (from: string, to: string) => void;
+  onQuota?: (model: string, message: string) => void;
 }): ModelClient {
   return {
     async generate({ systemInstruction, prompt, responseSchema }) {
@@ -154,13 +178,15 @@ export function geminiClient(options?: {
           "GOOGLE_API_KEY is not set. Put it in .env (gitignored) or Secret Manager.",
         );
       }
-      const model =
-        options?.model ?? process.env.INTENTLINK_MODEL_COMPILE;
-      if (!model) {
+      const primary = options?.model ?? process.env.INTENTLINK_MODEL_COMPILE;
+      if (!primary) {
         throw new Error(
-          "INTENTLINK_MODEL_COMPILE is not set. Pick a current Pro-tier Gemini model.",
+          "INTENTLINK_MODEL_COMPILE is not set. Pick a current Gemini model.",
         );
       }
+      const chain = [primary, ...(options?.fallbacks ?? DEFAULT_FALLBACKS)].filter(
+        (m, i, all) => all.indexOf(m) === i,
+      );
 
       const { GoogleGenAI } = await import("@google/genai");
       const ai = new GoogleGenAI({ apiKey });
@@ -180,7 +206,11 @@ export function geminiClient(options?: {
       const maxAttempts = options?.maxAttempts ?? 4;
       let lastError: unknown;
 
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let previous: string | undefined;
+      for (const model of chain) {
+       if (previous) options?.onFallback?.(previous, model);
+       previous = model;
+       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
           const response = await ai.models.generateContent({
             model,
@@ -203,12 +233,33 @@ export function geminiClient(options?: {
           lastError = err;
           const message = err instanceof Error ? err.message : String(err);
           const transient = /\b(503|UNAVAILABLE|high demand|overloaded|deadline)\b/i.test(message);
-          if (!transient || attempt === maxAttempts) throw err;
 
-          const backoffMs = Math.min(8000, 500 * 2 ** (attempt - 1)) + Math.random() * 400;
+          /*
+           * Quota is per-model-per-day on the free tier - 20 requests, with a
+           * retry delay measured in hours. Waiting is pointless, but the NEXT
+           * model in the chain has its own allowance, so move on immediately
+           * rather than failing the whole call.
+           */
+          const exhausted = /\b(429|RESOURCE_EXHAUSTED|quota)\b/i.test(message);
+          if (exhausted) {
+            options?.onQuota?.(model, message);
+            break;
+          }
+
+          // Anything else is the same on every model in the chain - a bad key,
+          // a malformed schema - so fail now rather than repeating the
+          // identical mistake against three more models.
+          if (!transient) throw err;
+
+          // Exhausted this model's retries: fall through to the next one,
+          // since the outage is usually per-model.
+          if (attempt === maxAttempts) break;
+
+          const backoffMs = Math.min(15_000, 600 * 2 ** (attempt - 1)) + Math.random() * 400;
           options?.onRetry?.(attempt, message);
           await new Promise((resolve) => setTimeout(resolve, backoffMs));
         }
+       }
       }
 
       throw lastError instanceof Error ? lastError : new Error("Gemini call failed");

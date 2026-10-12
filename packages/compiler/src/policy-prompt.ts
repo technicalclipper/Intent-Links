@@ -223,48 +223,59 @@ export function renderActionSpace(intent: IntentLink): string {
  * model inventing one that never matches anything at run time.
  */
 function adjacentVerbs(intent: IntentLink): string[] {
-  const apps = new Set(intent.steps.map((s) => s.app));
   /*
-   * This vocabulary bounds what boundaries can be expressed at all.
+   * A vocabulary of things a person might forbid, phrased for ANY web app
+   * rather than for one industry.
    *
-   * On the first real end-to-end run the creator wrote "ask me before paging
-   * anyone externally" and the model correctly reported it as uncompilable -
-   * there was no paging verb to bind it to. The honest report is the right
-   * behaviour, but a boundary a creator naturally reaches for should have
-   * somewhere to land. Anything a person might plausibly forbid belongs here.
+   * This bounds what boundaries can be expressed at all: on the first real
+   * end-to-end run the creator wrote "ask me before paging anyone externally"
+   * and the model correctly reported it as uncompilable, because there was no
+   * paging verb to bind it to. The honest report was right, but a boundary a
+   * person naturally reaches for should have somewhere to land.
+   *
+   * These are shapes of risk, not features of a product: destroying, granting,
+   * spending, publishing, sharing, and reaching people outside.
    */
   const verbs = new Set<string>([
+    // destroy
     "delete_*",
     "remove_*",
     "archive_*",
-    "invite_user",
+    "clear_*",
+    "reset_*",
+    // authority
     "grant_role",
+    "change_permissions",
     "revoke_access",
+    "invite_user",
+    "transfer_ownership",
+    "change_password",
+    // money
+    "modify_billing",
+    "start_subscription",
+    "cancel_subscription",
+    "make_purchase",
+    // reaching people
     "send_email",
     "send_message",
     "post_message",
+    "post_comment",
     "send_page",
-    "page_oncall",
-    "trigger_alert",
     "notify_external",
-    "set_setting",
-    "modify_billing",
-    "transfer_ownership",
-    "export_data",
+    // visibility
+    "publish_*",
+    "make_public",
     "share_externally",
-    "change_permissions",
+    "export_data",
+    "upload_file",
+    // configuration
+    "set_setting",
+    "disable_*",
+    "enable_*",
   ]);
-  if (apps.has("slack")) {
-    verbs.add("post_message");
-    verbs.add("invite_user");
-    verbs.add("archive_channel");
-  }
-  if (apps.has("jira")) {
-    verbs.add("delete_issue");
-    verbs.add("set_permissions");
-    verbs.add("transition_issue");
-  }
-  // The workflow's own verbs are already listed above; do not repeat them.
+
+  // The workflow's own verbs are listed separately above; repeating them here
+  // would invite rules that duplicate what the steps already describe.
   for (const step of intent.steps) verbs.delete(step.action.verb);
   return [...verbs];
 }

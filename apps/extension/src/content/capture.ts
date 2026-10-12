@@ -11,22 +11,34 @@ import { describe } from "@intentlink/a11y";
 import type { PageContext, TraceEvent, TraceEventType } from "@intentlink/schema";
 import { redactValue } from "../shared/redact.js";
 import type { ContentMessage } from "../shared/protocol.js";
+import { composedParent, composedTarget } from "./dom.js";
 
 type Emit = (event: Omit<TraceEvent, "seq">) => void;
 
 /** Host → stable app identity, so one trace can span several products. */
-function appIdentity(host: string): string {
+export function appIdentity(host: string): string {
   const h = host.toLowerCase();
-  if (h.endsWith(".slack.com") || h === "slack.com") return "slack";
-  if (h.endsWith(".atlassian.net") || h.endsWith(".atlassian.com")) return "jira";
+
+  /*
+   * Only the cases where the hostname is genuinely misleading. The fallback
+   * below handles everything else correctly, and a product that claims to
+   * work on any web app should not carry a list it has to be taught.
+   */
   if (h === "console.cloud.google.com") return "gcp-console";
-  if (h.endsWith(".google.com")) return "google";
-  if (h.endsWith(".github.com") || h === "github.com") return "github";
-  if (h.endsWith(".notion.so")) return "notion";
-  // Fall back to the registrable-ish label rather than the full host, so
-  // acme.slack.com and globex.slack.com are the same app.
-  const parts = h.split(".");
-  return parts.length >= 2 ? parts[parts.length - 2]! : h;
+  if (h.endsWith(".atlassian.net") || h.endsWith(".atlassian.com")) return "jira";
+
+  // The registrable label, so acme.slack.com and globex.slack.com are one app,
+  // and studio.youtube.com and www.youtube.com are both "youtube".
+  const parts = h.split(".").filter(Boolean);
+  if (parts.length < 2) return h;
+
+  // Two-part public suffixes (.co.uk, .com.au) would otherwise yield "co".
+  const last = parts[parts.length - 1]!;
+  const secondLast = parts[parts.length - 2]!;
+  const isCompoundSuffix =
+    parts.length >= 3 && ["co", "com", "net", "org", "gov", "ac"].includes(secondLast) && last.length === 2;
+
+  return isCompoundSuffix ? parts[parts.length - 3]! : secondLast;
 }
 
 /**
@@ -96,7 +108,7 @@ function opFor(el: Element): TraceEventType {
 function interactiveAncestor(start: Element | null): Element | null {
   let node: Element | null = start;
   let hops = 0;
-  while (node && hops++ < 8) {
+  while (node && hops++ < 12) {
     const role = node.getAttribute("role");
     const tag = node.tagName.toLowerCase();
     const interactive =
@@ -105,7 +117,7 @@ function interactiveAncestor(start: Element | null): Element | null {
       node.hasAttribute("tabindex") ||
       node.getAttribute("contenteditable") === "true";
     if (interactive) return node;
-    node = node.parentElement;
+    node = composedParent(node);
   }
   return start;
 }
@@ -175,7 +187,7 @@ export class Recorder {
 
   private readonly onClick = (ev: Event): void => {
     if (!this.active || !ev.isTrusted) return;
-    const el = interactiveAncestor(ev.target as Element | null);
+    const el = interactiveAncestor(composedTarget(ev));
     if (!el) return;
     // A toggle's `change` carries the resulting state; its click would only
     // duplicate the event with a stale value.
@@ -185,7 +197,7 @@ export class Recorder {
 
   private readonly onChange = (ev: Event): void => {
     if (!this.active || !ev.isTrusted) return;
-    const el = ev.target as Element | null;
+    const el = composedTarget(ev);
     if (!el) return;
     const type = opFor(el);
     if (type === "fill") {
@@ -198,7 +210,7 @@ export class Recorder {
 
   private readonly onFocusOut = (ev: Event): void => {
     if (!this.active) return;
-    const el = ev.target as Element | null;
+    const el = composedTarget(ev);
     if (!el || !this.pending.has(el)) return;
     const value = this.pending.get(el);
     this.pending.delete(el);
@@ -207,7 +219,7 @@ export class Recorder {
 
   private readonly onKeyDown = (ev: KeyboardEvent): void => {
     if (!this.active || !ev.isTrusted || ev.key !== "Enter") return;
-    const el = ev.target as Element | null;
+    const el = composedTarget(ev);
     if (!el) return;
     // Enter commits a field and often submits; capture the value before the
     // page navigates away and focusout never fires.

@@ -10,7 +10,8 @@ import {
   score,
   similarity,
 } from "./resolve.js";
-import { routeTemplate } from "./capture.js";
+import { appIdentity as appIdentityFor, routeTemplate } from "./capture.js";
+import { composedParent, composedTarget } from "./dom.js";
 
 function mount(html: string): Document {
   const { document } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
@@ -189,4 +190,97 @@ test("route templates generalise ids so steps key across tenants", () => {
 test("stable path segments are left alone", () => {
   assert.equal(routeTemplate("/admin/channels"), "/admin/channels");
   assert.equal(routeTemplate("/jira/software/projects/INC/boards"), "/jira/software/projects/INC/boards");
+});
+
+/* ------------------------- web components / shadow DOM -------------------- */
+
+/**
+ * linkedom has no shadow DOM, so these build the structure that matters —
+ * a host whose children are reachable only through a root object — and verify
+ * the traversal follows it. The real check is on YouTube itself.
+ */
+function withShadow(html: string, hostSel: string, shadowHtml: string): Document {
+  const doc = mount(html);
+  const host = doc.querySelector(hostSel)!;
+  const shadow = mount(shadowHtml).body;
+  // Minimal stand-in for an open shadow root: the traversal only needs
+  // querySelectorAll on it, and `host` to climb back out.
+  Object.defineProperty(host, "shadowRoot", {
+    value: Object.assign(shadow, { host }),
+    configurable: true,
+  });
+  (globalThis as { document?: unknown }).document = doc;
+  return doc as unknown as Document;
+}
+
+test("a control inside a web component is found at all", () => {
+  // YouTube's settings live in Polymer components; a plain querySelectorAll
+  // stops at the boundary and reports the page as having no such control.
+  withShadow(
+    `<main><h2>Playback and performance</h2><ytd-settings-panel></ytd-settings-panel></main>`,
+    "ytd-settings-panel",
+    `<label for="ap">Autoplay next video</label><input id="ap" role="switch" type="checkbox">`,
+  );
+
+  const { candidates, tier } = resolve([
+    hint({ role: "switch", name: "Autoplay next video", nameSource: "label" }),
+  ]);
+
+  assert.notEqual(tier, "none", "the control must be reachable inside the shadow root");
+  assert.equal(candidates[0]?.descriptor.name, "Autoplay next video");
+});
+
+test("composedTarget reports the real element, not the shadow host", () => {
+  // Events retarget as they cross a shadow boundary, so a document-level
+  // listener sees <ytd-settings-panel> rather than the switch inside it. Every
+  // step in a component app would otherwise be recorded as "clicked the host".
+  const doc = withShadow(
+    `<main><ytd-settings-panel></ytd-settings-panel></main>`,
+    "ytd-settings-panel",
+    `<button>Save</button>`,
+  );
+  const host = doc.querySelector("ytd-settings-panel")!;
+  const inner = (host as unknown as { shadowRoot: Element }).shadowRoot.querySelector("button")!;
+
+  const retargeted = { target: host, composedPath: () => [inner, host, doc.body] } as unknown as Event;
+  assert.equal(composedTarget(retargeted), inner as unknown as Element);
+
+  const plain = { target: inner, composedPath: () => [inner] } as unknown as Event;
+  assert.equal(composedTarget(plain), inner as unknown as Element);
+});
+
+test("composedParent climbs out of a shadow root onto its host", () => {
+  const doc = withShadow(
+    `<main><ytd-settings-panel></ytd-settings-panel></main>`,
+    "ytd-settings-panel",
+    `<button>Save</button>`,
+  );
+  const host = doc.querySelector("ytd-settings-panel")!;
+  const shadow = (host as unknown as { shadowRoot: Element & { host: Element } }).shadowRoot;
+  const inner = shadow.querySelector("button")!;
+
+  // Inside the shadow tree the button has a parent; at the top, the walk must
+  // step onto the host rather than stopping and reporting no context.
+  Object.defineProperty(inner, "parentElement", { value: null, configurable: true });
+  Object.defineProperty(inner, "getRootNode", { value: () => shadow, configurable: true });
+  assert.equal(composedParent(inner as unknown as Element), host as unknown as Element);
+});
+
+/* ------------------------------ app identity ------------------------------ */
+
+test("app identity covers any site, not a list of known ones", () => {
+  for (const [host, expected] of [
+    ["www.youtube.com", "youtube"],
+    ["studio.youtube.com", "youtube"],
+    ["acme.slack.com", "slack"],
+    ["globex.slack.com", "slack"],
+    ["github.com", "github"],
+    ["app.some-startup.io", "some-startup"],
+    ["console.cloud.google.com", "gcp-console"],
+    ["acme.atlassian.net", "jira"],
+    // A two-part public suffix would otherwise yield "co".
+    ["shop.example.co.uk", "example"],
+  ] as const) {
+    assert.equal(appIdentityFor(host), expected, `${host} should be ${expected}`);
+  }
 });

@@ -15,6 +15,7 @@
 import { describe } from "@intentlink/a11y";
 import type { ElementDescriptor } from "@intentlink/schema";
 import type { ResolutionTier, ScoredCandidate } from "../shared/protocol.js";
+import { deepQueryAll } from "./dom.js";
 
 /** Acting threshold. Below this we ask a human rather than guess. */
 export const CONFIDENCE_FLOOR = 0.62;
@@ -204,7 +205,10 @@ export function interactiveElements(root: ParentNode = document): Element[] {
     "a[href]", "button", "input", "select", "textarea", "summary",
     "[role]", "[tabindex]", "[contenteditable='true']",
   ].join(",");
-  return Array.from(root.querySelectorAll(selector)).filter(isVisible);
+  // deepQueryAll rather than querySelectorAll: most controls in a web-component
+  // app (YouTube, and anything Polymer-based) live inside shadow roots that a
+  // plain query cannot cross.
+  return deepQueryAll(selector, root).filter(isVisible);
 }
 
 /**
@@ -246,7 +250,9 @@ export function resolve(
 
   const scored: ScoredCandidate[] = [];
   elements.forEach((el, index) => {
-    const descriptor = describe(el, { includeValue: false });
+    // Passing the pool keeps describe() from scanning the whole document to
+    // work out an ordinal - which was both slow and wrong across shadow roots.
+    const descriptor = describe(el, { includeValue: false, siblings: elements });
     let best = 0;
     for (const hint of hints) best = Math.max(best, score(hint, descriptor));
     if (best <= 0) return;

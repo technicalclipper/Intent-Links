@@ -15,6 +15,22 @@ import { headingLevel, LANDMARK_ROLES, resolveRole } from "./role.js";
 const MAX_ANCESTOR_PATH = 12;
 const MAX_NEARBY = 4;
 
+/**
+ * Walk up, crossing shadow boundaries.
+ *
+ * parentElement returns null at the top of a shadow root, so a control inside
+ * a web component would report no section and no landmark - it would look
+ * context-free even when it sits in a labelled dialog. Stepping onto the host
+ * continues the ascent into the document that contains the component.
+ */
+function parentOf(el: Element): Element | null {
+  if (el.parentElement) return el.parentElement;
+  // Recognised by shape rather than instanceof: a ShadowRoot from an iframe
+  // belongs to another realm, where instanceof ShadowRoot is false.
+  const host = (el.getRootNode?.() as ShadowRoot | undefined)?.host;
+  return host && (host as Node).nodeType === 1 ? host : null;
+}
+
 export interface DescribeOptions {
   /** Include the element's current value. Redaction runs separately, upstream. */
   includeValue?: boolean;
@@ -32,7 +48,7 @@ function isTriState(v: string | null): boolean | "mixed" | undefined {
 
 /** Nearest heading or labelled group above this element — "Budget scope". */
 function sectionOf(el: Element): string | undefined {
-  let node: Element | null = el.parentElement;
+  let node: Element | null = parentOf(el);
   let hops = 0;
   while (node && hops++ < 20) {
     const labelled = node.getAttribute?.("aria-label");
@@ -51,20 +67,20 @@ function sectionOf(el: Element): string | undefined {
       const t = heading.textContent?.replace(/\s+/g, " ").trim();
       if (t) return t.slice(0, 512);
     }
-    node = node.parentElement;
+    node = parentOf(node);
   }
   return undefined;
 }
 
 /** Nearest enclosing landmark — main, dialog, navigation, banner. */
 function landmarkOf(el: Element): string | undefined {
-  let node: Element | null = el.parentElement;
+  let node: Element | null = parentOf(el);
   let hops = 0;
   while (node && hops++ < 30) {
     const role = resolveRole(node);
     if (LANDMARK_ROLES.has(role)) return role;
     if (node.hasAttribute?.("aria-modal")) return "dialog";
-    node = node.parentElement;
+    node = parentOf(node);
   }
   return undefined;
 }
@@ -72,11 +88,11 @@ function landmarkOf(el: Element): string | undefined {
 /** Ancestor roles, outermost first. Structural disambiguation only. */
 function ancestorPath(el: Element): string[] {
   const out: string[] = [];
-  let node: Element | null = el.parentElement;
+  let node: Element | null = parentOf(el);
   while (node && out.length < MAX_ANCESTOR_PATH) {
     const role = resolveRole(node);
     if (role !== "generic") out.push(role);
-    node = node.parentElement;
+    node = parentOf(node);
   }
   return out.reverse();
 }
@@ -86,7 +102,7 @@ function ancestorPath(el: Element): string[] {
  * every row of a table). Taken from the nearest row/listitem/group ancestor.
  */
 function nearbyText(el: Element): string[] | undefined {
-  let node: Element | null = el.parentElement;
+  let node: Element | null = parentOf(el);
   let hops = 0;
   while (node && hops++ < 6) {
     const role = resolveRole(node);
@@ -105,7 +121,7 @@ function nearbyText(el: Element): string[] | undefined {
         }
       }
     }
-    node = node.parentElement;
+    node = parentOf(node);
   }
   return undefined;
 }

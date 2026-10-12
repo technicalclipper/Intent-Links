@@ -1,0 +1,165 @@
+{
+  "title": "Open a sev2 incident",
+  "goal": "Stand up an incident channel and a tracking issue the way our SRE team does it",
+  "context": "Recorded during the payments incident; the narration carries two team conventions the clicks alone do not show.",
+  "params": [
+    {
+      "name": "incident_slug",
+      "type": "string",
+      "required": true,
+      "description": "Short identifier for this incident, used in the channel name",
+      "pattern": "^[a-z0-9-]{3,48}$",
+      "recordedExample": "inc-2026-10-05-payments",
+      "rationale": "Names this particular incident; every run is a different incident."
+    },
+    {
+      "name": "summary",
+      "type": "string",
+      "required": true,
+      "description": "One-line description of what is wrong",
+      "recordedExample": "Sev2: payments degraded",
+      "rationale": "Describes the specific failure being responded to."
+    },
+    {
+      "name": "severity",
+      "type": "enum",
+      "required": true,
+      "enumValues": [
+        "sev1",
+        "sev2",
+        "sev3"
+      ],
+      "recordedExample": "sev2",
+      "rationale": "The narration ties priority to severity, so severity must be an input rather than fixed at sev2."
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "title": "Create the incident channel",
+      "intent": "One place for the bridge to coordinate",
+      "app": "slack",
+      "verb": "create_channel",
+      "object": "channel",
+      "args": [
+        {
+          "name": "name",
+          "kind": "param",
+          "value": "incident_slug",
+          "rationale": "The channel is named for the incident."
+        }
+      ],
+      "dependsOn": [],
+      "sourceEvents": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "id": "s2",
+      "title": "Make the channel private",
+      "intent": "Narration: \"Always make the incident channel private first\"",
+      "app": "slack",
+      "verb": "set_setting",
+      "object": "channel_visibility",
+      "args": [
+        {
+          "name": "visibility",
+          "kind": "literal",
+          "value": "private",
+          "rationale": "A team convention, not a per-incident choice. Stated in the narration as 'always'."
+        }
+      ],
+      "dependsOn": [
+        "s1"
+      ],
+      "sourceEvents": [
+        3
+      ]
+    },
+    {
+      "id": "s3",
+      "title": "Set the channel topic",
+      "intent": "So anyone joining sees the severity immediately",
+      "app": "slack",
+      "verb": "set_topic",
+      "object": "channel",
+      "args": [
+        {
+          "name": "topic",
+          "kind": "param",
+          "value": "summary",
+          "rationale": "Describes this incident."
+        }
+      ],
+      "dependsOn": [
+        "s2"
+      ],
+      "sourceEvents": [
+        4
+      ]
+    },
+    {
+      "id": "s4",
+      "title": "Create the tracking issue",
+      "intent": "Every incident gets an issue for the post-mortem trail",
+      "app": "jira",
+      "verb": "create_issue",
+      "object": "issue",
+      "args": [
+        {
+          "name": "summary",
+          "kind": "param",
+          "value": "summary",
+          "rationale": "Describes this incident."
+        },
+        {
+          "name": "project",
+          "kind": "literal",
+          "value": "INC",
+          "rationale": "Incidents always go on the INC board; a different board would be a different workflow."
+        }
+      ],
+      "dependsOn": [
+        "s1"
+      ],
+      "sourceEvents": [
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "id": "s5",
+      "title": "Set the issue priority from the severity",
+      "intent": "Narration: \"Priority is highest for a sev2\"",
+      "app": "jira",
+      "verb": "set_field",
+      "object": "priority",
+      "args": [
+        {
+          "name": "value",
+          "kind": "literal",
+          "value": "Highest",
+          "rationale": "Derived from severity rather than chosen freely; the condition carries the rule."
+        }
+      ],
+      "condition": "severity is sev1 or sev2",
+      "dependsOn": [
+        "s4"
+      ],
+      "sourceEvents": [
+        8
+      ]
+    }
+  ],
+  "outcomes": [
+    {
+      "describe": "the incident channel exists and is private"
+    },
+    {
+      "describe": "an INC tracking issue exists at the right priority"
+    }
+  ]
+}

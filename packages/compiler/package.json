@@ -1,0 +1,26 @@
+{
+  "name": "@intentlink/compiler",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "tsc -b && node --test dist/*.test.js"
+  },
+  "dependencies": {
+    "@intentlink/schema": "*",
+    "@google/genai": "^2.28.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22"
+  }
+}

@@ -8,6 +8,7 @@
  */
 
 import type { TraceEvent } from "@intentlink/schema";
+import type { Candidate } from "../shared/protocol.js";
 import type {
   ContentMessage,
   ExecutionState,
@@ -15,6 +16,9 @@ import type {
   PanelState,
   RecordingState,
 } from "../shared/protocol.js";
+
+/** A candidate plus the frame that owns its handle. */
+type FramedCandidate = Candidate & { frameId: number };
 
 const KEY_RECORDING = "intentlink:recording";
 const KEY_EXECUTION = "intentlink:execution";
@@ -171,6 +175,8 @@ async function broadcastToTabs(message: unknown): Promise<void> {
     tabs.map(async (tab) => {
       if (tab.id === undefined) return;
       try {
+        // No frameId: this reaches every frame, which is what recording wants
+        // - a control the person clicks may live in an embedded pane.
         await chrome.tabs.sendMessage(tab.id, message);
       } catch {
         // No content script in that tab (chrome://, the web store, a tab that
@@ -178,6 +184,44 @@ async function broadcastToTabs(message: unknown): Promise<void> {
       }
     }),
   );
+}
+
+/**
+ * Ask every frame of a tab to resolve, and merge what they find.
+ *
+ * With the content script in all frames, resolution is a fan-out: each frame
+ * searches its own document and the best candidate may be in an embedded pane
+ * rather than the top one. Handles are frame-local, so each candidate is
+ * stamped with the frame that produced it - that pair is what addresses an
+ * element when the time comes to act.
+ */
+export async function resolveAcrossFrames(
+  tabId: number,
+  message: unknown,
+): Promise<{ candidates: FramedCandidate[]; frames: number[] }> {
+  const frames = (await chrome.webNavigation?.getAllFrames?.({ tabId })) ?? null;
+  const frameIds = frames?.map((f) => f.frameId) ?? [0];
+
+  const replies = await Promise.all(
+    frameIds.map(async (frameId) => {
+      try {
+        const reply = (await chrome.tabs.sendMessage(tabId, message, { frameId })) as
+          | { candidates?: Array<Record<string, unknown>> }
+          | undefined;
+        return (reply?.candidates ?? []).map((c) => ({ ...c, frameId }) as FramedCandidate);
+      } catch {
+        // A frame with no content script (about:blank, a sandboxed ad) is not
+        // a failure; it simply has nothing to offer.
+        return [];
+      }
+    }),
+  );
+
+  const candidates = replies
+    .flat()
+    .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
+
+  return { candidates, frames: frameIds };
 }
 
 async function panelState(): Promise<PanelState> {
@@ -192,7 +236,9 @@ chrome.runtime.onMessage.addListener((message: ContentMessage | PanelMessage, _s
         return respond({ ok: true });
 
       case "content:ready": {
-        // A page that loads mid-recording has to start listening on its own.
+        // A page - or an iframe within it - that loads mid-recording has to
+        // start listening on its own; the worker's broadcast went out before
+        // this frame existed.
         const state = await getRecording();
         return respond({ recording: state.status === "recording" });
       }

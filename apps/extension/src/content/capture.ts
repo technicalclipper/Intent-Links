@@ -158,6 +158,9 @@ export class Recorder {
   /** SPA route changes are navigations even though no document load happens. */
   noteNavigation(): void {
     if (!this.active) return;
+    // A nested frame changing its own URL is not the person navigating, and
+    // with the script in every frame those would otherwise flood the trace.
+    if (window.top !== window.self) return;
     const here = location.pathname + location.search;
     if (here === this.lastRoute) return;
     this.lastRoute = here;

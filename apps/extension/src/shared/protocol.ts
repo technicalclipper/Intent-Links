@@ -19,7 +19,7 @@ export type ContentMessage =
   | { type: "capture:page"; page: PageContext }
   | { type: "resolve:result"; requestId: string; result: ResolveResult }
   | { type: "act:result"; requestId: string; result: ActResult }
-  | { type: "content:ready"; page: PageContext };
+  | { type: "content:ready"; page: PageContext; isTopFrame: boolean };
 
 /* ----------------------------- worker → content --------------------------- */
 
@@ -43,8 +43,17 @@ export interface Candidate {
   /** 0..1. Below the acting threshold we ask a human rather than guess. */
   confidence: number;
   tier: ResolutionTier;
-  /** Stable handle for this element within the current page snapshot. */
+  /**
+   * Stable handle for this element within the frame that produced it.
+   *
+   * Handles are frame-local: with the content script in every frame, two
+   * frames each have a handle 0 pointing at different elements. The worker
+   * pairs this with frameId before acting, and the pair is what addresses an
+   * element.
+   */
   handle: number;
+  /** Set by the worker from the sender; content scripts cannot know their own. */
+  frameId?: number;
   /**
    * sha256 of the descriptor, computed here and echoed by the agent so the
    * issued token binds to this exact element. The agent must never compute or
@@ -63,6 +72,8 @@ export type ScoredCandidate = Omit<Candidate, "targetHash">;
 
 export interface ResolveResult {
   candidates: Candidate[];
+  /** Frame the candidates came from. Stamped by the worker, not the frame. */
+  frameId?: number;
   /** Compact a11y tree, sent upstream only when tiers 1-2 fail. */
   tree?: ElementDescriptor[];
   page: PageContext;

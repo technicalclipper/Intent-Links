@@ -3,17 +3,36 @@
   "name": "IntentLink",
   "version": "0.1.0",
   "description": "Record a task once. Share it as a bounded intent. Let the receiver's agent do the work.",
-  "permissions": ["storage", "tabs", "scripting", "sidePanel"],
-  "host_permissions": ["<all_urls>"],
-  "background": { "service_worker": "background/worker.js", "type": "module" },
-  "side_panel": { "default_path": "sidepanel/panel.html" },
-  "action": { "default_title": "IntentLink" },
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "sidePanel",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background/worker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/panel.html"
+  },
+  "action": {
+    "default_title": "IntentLink"
+  },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/main.js"],
-      "run_at": "document_idle",
-      "all_frames": false
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/main.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
     }
   ]
 }

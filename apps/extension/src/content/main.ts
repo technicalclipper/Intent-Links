@@ -143,7 +143,14 @@ chrome.runtime.onMessage.addListener((message: WorkerMessage, _sender, respond) 
 // A page that loads while a recording is already running has to opt in itself;
 // the worker's broadcast went out before this script existed.
 chrome.runtime
-  .sendMessage({ type: "content:ready", page: pageContext() } satisfies ContentMessage)
+  .sendMessage({
+    type: "content:ready",
+    page: pageContext(),
+    // The worker learns the frame id from the sender; the frame itself only
+    // needs to say whether it is the top one, so navigation and tab-level
+    // bookkeeping are not driven by every embedded iframe on the page.
+    isTopFrame: window.top === window.self,
+  } satisfies ContentMessage)
   .then((reply: { recording?: boolean } | undefined) => {
     if (reply?.recording) recorder.start();
   })

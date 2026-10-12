@@ -15,3 +15,7 @@ apps/extension/dist/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# extension build artifacts
+apps/extension/dist/
+apps/extension/dist-test/

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IntentLink</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <span class="mark">IntentLink</span>
+      <span class="tally" id="tally" hidden>
+        <b class="allow" id="t-allow">0</b> allowed
+        <b class="deny" id="t-blocked">0</b> blocked
+        <b class="approve" id="t-approvals">0</b> approved
+      </span>
+    </header>
+
+    <section class="controls">
+      <button id="record" class="primary">Record</button>
+      <button id="pause" hidden>Pause</button>
+      <button id="stop" hidden>Stop</button>
+      <span class="status" id="status">idle</span>
+    </section>
+
+    <section class="meta" id="meta" hidden>
+      <span id="event-count">0 steps</span>
+      <span class="sep">·</span>
+      <span id="apps"></span>
+      <span class="sep">·</span>
+      <!-- The number that kills the macro-recorder comparison on sight. -->
+      <span class="proof"><b id="coords">0</b> coordinates captured</span>
+    </section>
+
+    <section id="block" class="block" hidden>
+      <div class="block-head">Intent boundary reached</div>
+      <div class="block-reason" id="block-reason"></div>
+      <div class="block-boundary" id="block-boundary" hidden></div>
+      <div class="block-suggestion" id="block-suggestion" hidden></div>
+    </section>
+
+    <ol class="steps" id="steps"></ol>
+
+    <p class="empty" id="empty">
+      Press <b>Record</b>, then do the task once in any tab.
+    </p>
+
+    <script src="panel.js"></script>
+  </body>
+</html>

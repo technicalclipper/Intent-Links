@@ -5,9 +5,12 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "apps/api"
+    "apps/api",
+    "apps/extension"
   ],
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

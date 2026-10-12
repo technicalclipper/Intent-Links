@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist-test",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node", "chrome"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src/shared/**/*.ts", "src/content/capture.ts", "src/content/resolve.ts", "src/content/*.test.ts", "src/shared/*.test.ts"]
+}

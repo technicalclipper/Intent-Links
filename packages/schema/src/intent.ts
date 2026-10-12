@@ -20,6 +20,7 @@ export const ParamType = z.enum([
   "date",
   "enum",
 ]);
+export type ParamType = z.infer<typeof ParamType>;
 
 export const Parameter = z
   .object({
@@ -120,6 +121,7 @@ export const IntentStatus = z.enum([
   "deprecated",
   "revoked",
 ]);
+export type IntentStatus = z.infer<typeof IntentStatus>;
 
 export const IntentLink = z
   .object({

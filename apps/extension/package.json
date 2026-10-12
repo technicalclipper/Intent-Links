@@ -1,0 +1,22 @@
+{
+  "name": "@intentlink/extension",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/**/*.test.js"
+  },
+  "dependencies": {
+    "@intentlink/a11y": "*",
+    "@intentlink/schema": "*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3",
+    "@types/chrome": "^0.0.280",
+    "linkedom": "^0.18.5"
+  }
+}

@@ -33,6 +33,7 @@ export const RedactionReason = z.enum([
   "government_id",
   "manual",
 ]);
+export type RedactionReason = z.infer<typeof RedactionReason>;
 
 export const TraceEvent = z
   .object({

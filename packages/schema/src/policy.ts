@@ -16,6 +16,7 @@ import { z } from "zod";
 
 /** Glob over semantic verbs/objects: "grant_role", "*.admin", "delete_*". */
 export const Pattern = z.string().min(1).max(256);
+export type Pattern = z.infer<typeof Pattern>;
 
 export const ArgConstraint = z
   .object({
@@ -113,6 +114,7 @@ export const DEFAULT_DESTRUCTIVE_VERBS = [
 ] as const;
 
 export const PolicyMode = z.enum(["dry_run", "live"]);
+export type PolicyMode = z.infer<typeof PolicyMode>;
 
 export const Policy = z
   .object({

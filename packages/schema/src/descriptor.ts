@@ -28,6 +28,7 @@ export const NameSource = z.enum([
 export type NameSource = z.infer<typeof NameSource>;
 
 export const TriState = z.union([z.boolean(), z.literal("mixed")]);
+export type TriState = z.infer<typeof TriState>;
 
 export const ElementDescriptor = z
   .object({

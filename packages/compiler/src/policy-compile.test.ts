@@ -205,17 +205,56 @@ test("a boundary that blocks the workflow's own step is reported, with the sente
   assert.match(blocked.message, /don't change any fields on issues/);
 });
 
-test("a step no rule permits is reported as denied by default", () => {
+test("a recorded step runs without the creator having to permit it", () => {
+  // People describe outcomes, not mechanics. Someone who writes "change the
+  // mode and like the video" has not mentioned searching - and a policy that
+  // only permits what was mentioned forbids the navigation that gets there.
   const raw = clone();
-  raw.rules = raw.rules.filter((r) => r.verb !== "set_topic");
+  raw.rules = raw.rules.filter((r) => r.kind !== "allow");
+
   const policy = buildPolicy(raw, CTX);
   const { runnable, diagnostics } = analyze(policy, raw, CTX);
 
+  assert.equal(runnable, true, "the recording is the grant");
+  assert.deepEqual(diagnostics.filter((d) => d.code === "step_uncovered"), []);
+});
+
+test("a constrained allow is NOT replaced by the implicit permission", () => {
+  // The whole point of "only change the mode to light mode". Overwriting it
+  // with a blanket allow would discard the restriction while appearing to
+  // honour the sentence.
+  const raw = clone();
+  raw.rules = raw.rules.filter((r) => r.kind !== "allow");
+  raw.rules.push({
+    sourceText: "only change the mode to light mode",
+    kind: "allow",
+    verb: "set_setting",
+    args: [{ arg: "visibility", op: "matches", value: "[Ll]ight" }],
+    boundSteps: ["s2"],
+    reasoning: "constrained to light",
+  });
+
+  const policy = buildPolicy(raw, CTX);
+  const rules = policy.allowed.filter((r) => r.verb === "set_setting");
+  assert.equal(rules.length, 1, "exactly one rule governs the verb");
+  assert.equal(rules[0]!.args.length, 1, "and it is the constrained one");
+});
+
+test("a deny still beats the implicit permission", () => {
+  const raw = clone();
+  raw.rules = raw.rules.filter((r) => r.kind !== "allow");
+  raw.rules.push({
+    sourceText: "do not touch issues at all",
+    kind: "deny",
+    verb: "create_issue",
+    boundSteps: ["s4"],
+    reasoning: "",
+  });
+
+  const policy = buildPolicy(raw, CTX);
+  const { runnable, diagnostics } = analyze(policy, raw, CTX);
   assert.equal(runnable, false);
-  const uncovered = diagnostics.find((d) => d.code === "step_uncovered");
-  assert.ok(uncovered);
-  assert.equal(uncovered.stepId, "s3");
-  assert.match(uncovered.message, /denied by default/);
+  assert.ok(diagnostics.some((d) => d.code === "step_blocked" && d.stepId === "s4"));
 });
 
 test("a step that will pause for approval every run is a warning, not an error", () => {

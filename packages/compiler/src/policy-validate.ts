@@ -163,10 +163,24 @@ export function buildPolicy(raw: RawPolicy, ctx: PolicyBuildContext): Policy {
   });
 
   /*
-   * Reading the current page is how the agent perceives anything, and no
-   * creator writes "you may look at the screen". Without this every policy
-   * denies observation by default and the workflow cannot start. Scope rules
-   * still apply: the policy's origins and paths bound WHERE it may look.
+   * THE RECORDING IS THE GRANT. THE ENGLISH IS THE RESTRICTION.
+   *
+   * A creator who records a step has authorized it - nobody demonstrates work
+   * they do not want done. Their written boundaries are about how those steps
+   * may run, and about what must not happen BEYOND them.
+   *
+   * Treating the English as the complete list of permissions broke a real
+   * workflow. Someone recorded: open YouTube, switch to light mode, search for
+   * a creator, open the video, like it. They wrote "only change the mode to
+   * light mode and like the video which i did" - describing the OUTCOMES, not
+   * the navigation. The compiler permitted exactly those two verbs, and
+   * deny-by-default killed the search step that reaches the video. People
+   * describe what they want, not every mechanical move in between.
+   *
+   * So every recorded step is permitted unless a rule says otherwise, and a
+   * model-supplied rule for the same verb always wins - that is where "only
+   * light mode" lives as an argument constraint, and discarding it in favour
+   * of a blanket allow would throw the restriction away.
    */
   if (!allowed.some((r) => r.verb === "read_page" || r.verb === "*")) {
     allowed.push({
@@ -175,6 +189,19 @@ export function buildPolicy(raw: RawPolicy, ctx: PolicyBuildContext): Policy {
       args: [],
       sourceText: "implicit: the agent may observe the pages it is scoped to",
       boundSteps: [],
+    });
+  }
+
+  const constrained = new Set(allowed.map((r) => r.verb));
+  for (const step of ctx.intent.steps) {
+    if (constrained.has(step.action.verb) || constrained.has("*")) continue;
+    constrained.add(step.action.verb);
+    allowed.push({
+      id: `aw${allowed.length}`,
+      verb: step.action.verb,
+      args: [],
+      sourceText: `implicit: you demonstrated this step (${step.title})`,
+      boundSteps: [step.id],
     });
   }
 

@@ -118,12 +118,31 @@ writing rules that will be machine-checked before every action, so they must be
 precise about verbs, objects and arguments. Vagueness here becomes either a
 workflow that cannot run or an authority that is wider than intended.
 
-DENY BY DEFAULT
+WHAT YOU ARE AND ARE NOT DECIDING
 
-Nothing is permitted unless an allow rule permits it. So you must emit allow
-rules covering the steps the workflow legitimately needs, even when the creator
-only talked about what to forbid. Someone who says "don't delete anything" is
-not saying "and do nothing else" — they expect their workflow to run.
+The recording is the grant. The creator demonstrated these steps, which
+authorizes them; nobody records work they do not want done. Every step below
+is permitted already, and you do NOT need to emit an allow rule to enable one.
+
+Your job is the restriction: what must not happen, what needs a human first,
+and what limits apply to the steps that do run.
+
+This matters because people describe outcomes, not mechanics. "Change the mode
+to light and like the video" leaves out searching, opening the video and
+scrolling - the moves that get there. Reading that as the complete list of
+permissions would forbid the navigation the workflow depends on.
+
+EMIT AN ALLOW RULE ONLY TO CONSTRAIN ONE
+
+An allow rule you write REPLACES the implicit permission for that verb, so use
+one when the creator restricted how a step may run:
+
+  "only change the mode to light mode"
+    -> allow set_theme where theme matches [Ll]ight
+
+Never write a bare allow for a step that already exists. It adds nothing, and
+if the creator constrained that step you will have overwritten the constraint
+with a blanket permission.
 
 PRECEDENCE
 
@@ -153,6 +172,12 @@ Likewise "don't touch any other settings", "nothing else", "just the topic",
 "leave everything else alone". These are SCOPING statements. They say: the
 workflow's own steps are fine, and things outside it are not. Compiling them
 as blanket denials blocks the very workflow they were written to protect.
+
+DENY STILL WINS
+
+A deny rule beats the implicit permission, so "never delete anything" works
+even though deleting was never demonstrated, and a deny that lands on a
+recorded step genuinely stops it.
 
 THE TEST YOU MUST APPLY TO EVERY DENY RULE
 
@@ -188,10 +213,17 @@ binding has to be honest — do not leave boundSteps empty to avoid a conflict.
 
 ADMIT WHAT YOU COULD NOT COMPILE
 
-If part of what the creator said cannot be expressed as a rule over the
-available action space, put it in unmatchedClauses verbatim. A boundary
-silently dropped is worse than one the creator is told about: they believe
-they are protected and they are not.
+If a RESTRICTION cannot be expressed as a rule over the available action
+space, put it in unmatchedClauses verbatim. A boundary silently dropped is
+worse than one the creator is told about: they believe they are protected and
+they are not.
+
+unmatchedClauses is for restrictions only. Do not list a clause that merely
+describes something the creator wants done - "and like the video which i did"
+is a permission, the recording already granted it, and reporting it as
+unenforceable tells the receiver a step will not run when it will. Likewise
+skip pure context: "go to youtube.com" says where the work happens, not what
+is forbidden.
 `.trim();
 
 /**

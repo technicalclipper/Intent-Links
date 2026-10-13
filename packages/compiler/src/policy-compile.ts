@@ -71,12 +71,69 @@ export async function compilePolicy(
       runnable ? "built, workflow runnable" : "built, workflow blocked by its own boundaries",
     );
 
+    /*
+     * One retry when the workflow blocks itself, and only then.
+     *
+     * The distinction matters. A creator CAN genuinely forbid something their
+     * own workflow does, and in that case the right answer is to report it
+     * rather than keep asking until the model waters the boundary down. But
+     * the overwhelmingly common cause is a misread scoping phrase - "only
+     * change the mode to light mode" is a constraint on an argument, and
+     * reading it as "deny set_theme" blocks the step it was written to
+     * protect.
+     *
+     * So the repair prompt names the clash and explicitly permits the model to
+     * stand its ground: if the creator really did forbid the step, keep the
+     * deny and declare it. A genuine conflict survives the retry.
+     */
+    const blocked = diagnostics.filter((d) => d.code === "step_blocked");
+    if (blocked.length && attempt <= maxRepairs) {
+      prompt = reconsiderPrompt(intent, boundaries, blocked);
+      continue;
+    }
+
     // Returned either way. A blocked workflow is a finding to show the
     // creator, not a failure to hide from them.
     return { policy, bindings, diagnostics, runnable, raw, attempts: attempt };
   }
 
   throw new Error(`could not compile a usable policy: ${lastError}`);
+}
+
+/**
+ * Ask again about a self-blocking policy, without putting a thumb on the scale.
+ *
+ * It names which rule hit which step and reminds the model of the scoping
+ * reading - but it also says plainly that keeping the deny is a legitimate
+ * answer, so a creator who really did write a contradiction still gets told
+ * instead of quietly overridden.
+ */
+function reconsiderPrompt(
+  intent: IntentLink,
+  boundaries: string,
+  blocked: Array<{ message: string; stepId?: string; sourceText?: string }>,
+): string {
+  return [
+    "Your policy forbids steps that this workflow performs, so it cannot run.",
+    "",
+    "THE CLASHES",
+    ...blocked.map(
+      (d) =>
+        `  - step ${d.stepId ?? "?"} is blocked by ${JSON.stringify(d.sourceText ?? "a rule you wrote")}`,
+    ),
+    "",
+    "Re-read those sentences. A phrase like \"only change X\" or \"don't touch",
+    "anything else\" is a CONSTRAINT: it permits the step and restricts its",
+    "arguments, or forbids things outside the workflow. It does not forbid the",
+    "step itself.",
+    "",
+    "If, after re-reading, the creator genuinely did forbid something their own",
+    "workflow does, keep the deny rule and put that sentence in",
+    "unmatchedClauses with a note that it conflicts with the workflow. Do not",
+    "weaken a boundary the creator meant.",
+    "",
+    buildPolicyPrompt(intent, boundaries),
+  ].join("\n");
 }
 
 export function parsePolicyJson(text: string): RawPolicy {

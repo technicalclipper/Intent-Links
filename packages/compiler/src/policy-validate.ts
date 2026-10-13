@@ -20,7 +20,7 @@ import {
   type ProposedAction,
   type Step,
 } from "@intentlink/schema";
-import { evaluate, type EvalContext } from "@intentlink/policy";
+import { evaluate, uncompilablePatterns, type EvalContext } from "@intentlink/policy";
 
 /* ------------------------------ model output ------------------------------ */
 
@@ -78,6 +78,7 @@ export interface Diagnostic {
     | "overbroad_allow"
     | "unmatched_clause"
     | "self_approval"
+    | "bad_pattern"
     | "no_expiry";
   message: string;
   stepId?: string;
@@ -318,6 +319,20 @@ export function analyze(
         message: `You asked to be consulted, but this approval goes to whoever runs the workflow, who could approve it themselves.`,
       });
     }
+  }
+
+  /*
+   * A pattern JavaScript cannot compile matches nothing, which makes the rule
+   * containing it a boundary that silently does not exist. Simulation above
+   * has already exercised every rule, so anything recorded here was reached.
+   */
+  for (const pattern of uncompilablePatterns()) {
+    if (!JSON.stringify(raw).includes(pattern)) continue;
+    diagnostics.push({
+      severity: "error",
+      code: "bad_pattern",
+      message: `The pattern ${JSON.stringify(pattern)} is not valid here, so the rule using it matches nothing and is NOT being enforced.`,
+    });
   }
 
   for (const clause of raw.unmatchedClauses ?? []) {

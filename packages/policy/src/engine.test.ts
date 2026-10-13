@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Policy, type ProposedAction } from "@intentlink/schema";
 import { evaluate, evaluateForPreview, type EvalContext } from "./engine.js";
+import { uncompilablePatterns } from "./match.js";
 
 const basePolicy = Policy.parse(
   JSON.parse(
@@ -316,4 +317,39 @@ test("a destructive verb with neither allow nor approval is still denied", () =>
   const d = evaluate(p, act({ verb: "delete_channel", object: undefined }), ctx());
   assert.equal(d.outcome, "DENY");
   assert.match(d.reason, /irreversible/);
+});
+
+test("a PCRE inline flag is translated rather than failing closed", () => {
+  // Cost a real run: the model reasoned correctly and wrote
+  //   allow set_theme where theme matches "(?i).*light.*"
+  // which JavaScript cannot compile. It fell back to a never-matching pattern,
+  // so the rule written to PERMIT the step denied it by default instead.
+  const p = policyWith({
+    denied: [],
+    allowed: [
+      {
+        id: "a1",
+        verb: "set_theme",
+        args: [{ arg: "theme", op: "matches", value: "(?i).*light.*" }],
+        sourceText: "only change the mode to light mode",
+        boundSteps: ["s1"],
+      },
+    ],
+  });
+
+  const light = evaluate(p, act({ verb: "set_theme", object: undefined, args: { theme: "Light theme" } }), ctx());
+  assert.equal(light.outcome, "ALLOW", "case-insensitive match must work");
+
+  const dark = evaluate(p, act({ verb: "set_theme", object: undefined, args: { theme: "Dark theme" } }), ctx());
+  assert.equal(dark.outcome, "DENY", "and must still exclude other values");
+});
+
+test("a genuinely broken pattern is recorded, not just silently inert", () => {
+  const p = policyWith({
+    denied: [{ id: "d1", verb: "invite_user", args: [{ arg: "email", op: "matches", value: "([" }], boundSteps: [] }],
+  });
+  evaluate(p, act({ verb: "invite_user", object: undefined, args: { email: "x@y.com" } }), ctx());
+  // A boundary that matches nothing is a boundary that does not exist; the
+  // creator has to be told rather than left believing they are protected.
+  assert.ok(uncompilablePatterns().includes("(["));
 });

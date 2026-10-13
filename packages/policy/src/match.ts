@@ -40,6 +40,38 @@ export function specificity(pattern: string | undefined): number {
 
 const reCache = new Map<string, RegExp>();
 
+/** Patterns that could not be compiled, so callers can report them. */
+const uncompilable = new Set<string>();
+
+/**
+ * Patterns the model wrote that JavaScript cannot compile as-is.
+ *
+ * Reported rather than only failed-closed. A rule whose pattern matches
+ * nothing is a boundary that silently does not exist, and a creator who
+ * believes they are protected when they are not is the worst outcome
+ * available here - the same reason an uncompilable CLAUSE is surfaced.
+ */
+export function uncompilablePatterns(): string[] {
+  return [...uncompilable];
+}
+
+/**
+ * Inline flags are a PCRE/Python spelling that JavaScript rejects outright.
+ *
+ * Models reach for `(?i)` constantly, and it cost a real run: a correctly
+ * reasoned rule - allow set_theme where theme matches "(?i).*light.*" - threw
+ * on compile, fell back to a never-matching pattern, and the step it was
+ * written to permit was denied by default. Translating is strictly better than
+ * rejecting something whose intent is unambiguous.
+ */
+function extractInlineFlags(src: string): { source: string; flags: string } {
+  const match = /^\(\?([imsux]+)\)/.exec(src);
+  if (!match) return { source: src, flags: "" };
+  // u and x have no JavaScript equivalent in this position; the rest map over.
+  const flags = [...match[1]!].filter((f) => "ims".includes(f)).join("");
+  return { source: src.slice(match[0].length), flags };
+}
+
 /**
  * Author-supplied regexes are compiled once and cached. A pattern that fails to
  * compile never silently matches — it becomes a regex that matches nothing, so
@@ -48,10 +80,13 @@ const reCache = new Map<string, RegExp>();
 function safeRegExp(src: string): RegExp {
   const cached = reCache.get(src);
   if (cached) return cached;
+
+  const { source, flags } = extractInlineFlags(src);
   let re: RegExp;
   try {
-    re = new RegExp(src);
+    re = new RegExp(source, flags);
   } catch {
+    uncompilable.add(src);
     re = /(?!x)x/;
   }
   reCache.set(src, re);

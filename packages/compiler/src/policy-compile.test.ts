@@ -277,23 +277,48 @@ test("a clean policy compiles in one call and is runnable", async () => {
   assert.equal(result.runnable, true);
 });
 
-test("a blocked workflow is RETURNED, not retried away", async () => {
-  const raw = clone();
-  raw.rules.push({
-    sourceText: "don't touch issues at all",
+test("a self-blocking policy is reconsidered once", async () => {
+  const blocking = clone();
+  blocking.rules.push({
+    sourceText: "only change the topic",
+    kind: "deny",
+    verb: "set_topic",
+    boundSteps: ["s3"],
+    reasoning: "",
+  });
+
+  // A real case: "only change X" is a CONSTRAINT on X, not a ban on it, and a
+  // model that reads it as a prohibition blocks the step the sentence was
+  // written to protect. One retry, with the clash named, usually fixes it.
+  const model = scripted(blocking, WELL_FORMED);
+  const result = await compilePolicy(model, intent, "only change the topic", CTX);
+
+  assert.equal(model.calls, 2, "the clash must be put back to the model once");
+  assert.equal(result.runnable, true);
+});
+
+test("a model that stands its ground has the block REPORTED, not hidden", async () => {
+  const blocking = clone();
+  blocking.rules.push({
+    sourceText: "do not touch issues at all",
     kind: "deny",
     verb: "create_issue",
     boundSteps: ["s4"],
-    reasoning: "",
+    reasoning: "the creator really did forbid this",
   });
-  const model = scripted(raw);
 
-  const result = await compilePolicy(model, intent, "don't touch issues at all", CTX);
-  // Retrying would let the model water the boundary down until it stopped
-  // clashing, which is the opposite of what the creator asked for.
-  assert.equal(model.calls, 1);
+  // People do write contradictory instructions. When the model returns the
+  // same deny after reconsidering, that is an answer - so the clash is
+  // surfaced rather than retried until the boundary is watered down.
+  const model = scripted(blocking);
+  const result = await compilePolicy(model, intent, "do not touch issues at all", CTX);
+
   assert.equal(result.runnable, false);
   assert.ok(result.diagnostics.some((d) => d.code === "step_blocked"));
+  assert.match(
+    result.diagnostics.find((d) => d.code === "step_blocked")!.message,
+    /do not touch issues at all/,
+  );
 });
 
 test("an unusable response is repaired", async () => {

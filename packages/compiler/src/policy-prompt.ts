@@ -139,6 +139,32 @@ Prefer the narrowest rule that expresses the intent.
 Reserve wildcards for genuinely open-ended prohibitions ("don't delete
 anything" -> deny delete_*). Never emit an allow rule with verb "*".
 
+"ONLY" IS A CONSTRAINT, NOT A PROHIBITION
+
+This is the most common way to get a policy wrong, so read it twice.
+
+"Only change the mode to light mode" does NOT forbid changing the mode. It
+PERMITS changing the mode, and restricts the value:
+
+  allow set_theme where theme matches light
+  NOT  deny set_theme
+
+Likewise "don't touch any other settings", "nothing else", "just the topic",
+"leave everything else alone". These are SCOPING statements. They say: the
+workflow's own steps are fine, and things outside it are not. Compiling them
+as blanket denials blocks the very workflow they were written to protect.
+
+THE TEST YOU MUST APPLY TO EVERY DENY RULE
+
+Before emitting a deny, check it against the workflow steps listed below. If it
+matches one of them, you have almost certainly misread the sentence - it is a
+constraint on that step's arguments, not a ban on the step.
+
+A creator CAN genuinely forbid something their own workflow does; people write
+contradictory instructions. But that is rare, and if you conclude it is what
+happened, say so in unmatchedClauses rather than silently producing a policy
+that cannot run.
+
 ARGUMENT CONSTRAINTS CARRY THE MEANING
 
 "Don't invite anyone outside the company" is not a ban on inviting. It is a ban

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { Policy } from "@intentlink/schema";
-import { createApp, emptyStores } from "./server.js";
+import { MemoryStore, createApp } from "./server.js";
 
 const SECRET = "x".repeat(48);
 
@@ -24,7 +24,7 @@ async function withServer(
   fn: (base: string) => Promise<void>,
   clock: () => Date = () => NOW,
 ): Promise<void> {
-  const server = createApp(emptyStores(), SECRET, clock);
+  const server = createApp(new MemoryStore(), SECRET, clock);
   server.listen(0);
   await once(server, "listening");
   const { port } = server.address() as AddressInfo;

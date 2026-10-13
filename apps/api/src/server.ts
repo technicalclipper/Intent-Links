@@ -23,8 +23,6 @@ import {
 } from "@intentlink/schema";
 import { consentPage, publish, type PublishedLink } from "./publish.js";
 import {
-  MemoryTokenStore,
-  appendEntry,
   entryForDecision,
   evaluate,
   evaluateForPreview,
@@ -33,9 +31,9 @@ import {
   summarize,
   verifyAndSpend,
   verifyChain,
-  type AuditEntry,
   type EvalContext,
 } from "@intentlink/policy";
+import { MemoryStore, createStore, type Store } from "./store.js";
 
 /* ----------------------------- configuration ----------------------------- */
 
@@ -59,29 +57,6 @@ const MAX_BODY_BYTES = 1_000_000;
 /* ------------------------------- in-memory state -------------------------- */
 /* Postgres replaces these; the shapes are what the service needs, not the
  * storage. Keeping them behind these interfaces is what makes that swap dull. */
-
-export interface Stores {
-  policies: Map<string, Policy>;
-  audit: Map<string, AuditEntry[]>;
-  /** Per-execution counters the engine needs for its budget checks. */
-  counters: Map<string, { actionsUsed: number; recent: number[] }>;
-  /** Policy hash pinned when an execution started. */
-  pinned: Map<string, string>;
-  /** Published IntentLinks, by their short link id. */
-  links: Map<string, PublishedLink>;
-  tokens: MemoryTokenStore;
-}
-
-export function emptyStores(): Stores {
-  return {
-    policies: new Map(),
-    audit: new Map(),
-    counters: new Map(),
-    pinned: new Map(),
-    links: new Map(),
-    tokens: new MemoryTokenStore(),
-  };
-}
 
 /* --------------------------------- helpers -------------------------------- */
 
@@ -117,21 +92,6 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-/** Rolling 60s window, derived rather than stored, so it needs no sweeping. */
-function actionsInLastMinute(recent: number[], now: number): number {
-  const cutoff = now - 60_000;
-  return recent.filter((t) => t >= cutoff).length;
-}
-
-function audit(stores: Stores, executionId: string): AuditEntry[] {
-  let log = stores.audit.get(executionId);
-  if (!log) {
-    log = [];
-    stores.audit.set(executionId, log);
-  }
-  return log;
-}
-
 /* -------------------------------- handlers -------------------------------- */
 
 export interface DecideRequest {
@@ -144,13 +104,13 @@ export interface DecideRequest {
   preview?: boolean;
 }
 
-export function handleDecide(
-  stores: Stores,
+export async function handleDecide(
+  store: Store,
   secret: string,
   body: DecideRequest,
   now: Date,
-): { status: number; payload: unknown } {
-  const policy = stores.policies.get(body.policyId);
+): Promise<{ status: number; payload: unknown }> {
+  const policy = await store.getPolicy(body.policyId);
   if (!policy) return { status: 404, payload: { error: "unknown policy" } };
 
   const parsed = ProposedAction.safeParse(body.action);
@@ -159,19 +119,18 @@ export function handleDecide(
   }
   const action = parsed.data;
 
-  const counter =
-    stores.counters.get(action.executionId) ?? { actionsUsed: 0, recent: [] };
+  const counters = await store.getCounters(action.executionId, now.getTime());
 
   const ctx: EvalContext = {
     now,
-    actionsUsed: counter.actionsUsed,
-    actionsInLastMinute: actionsInLastMinute(counter.recent, now.getTime()),
+    actionsUsed: counters.actionsUsed,
+    actionsInLastMinute: counters.actionsInLastMinute,
     executionsUsed: 0,
   };
   if (body.receiver !== undefined) ctx.receiver = body.receiver;
   if (body.allowedValues !== undefined) ctx.allowedValues = body.allowedValues;
 
-  const pinnedHash = stores.pinned.get(action.executionId);
+  const pinnedHash = await store.getPin(action.executionId);
   if (pinnedHash !== undefined) ctx.pinnedPolicyHash = pinnedHash;
 
   const decision: Decision = body.preview
@@ -180,12 +139,25 @@ export function handleDecide(
 
   // Every decision is logged, including blocks. A log of only successes cannot
   // answer the receiver's real question, which is "what did it try?".
-  const log = audit(stores, action.executionId);
   const resource = action.origin ? `${action.origin}${action.path ?? ""}` : undefined;
-  const entryAction: { verb: string; object?: string; resource?: string } = { verb: action.verb };
-  if (action.object !== undefined) entryAction.object = action.object;
-  if (resource !== undefined) entryAction.resource = resource;
-  log.push(entryForDecision(log.at(-1), now.toISOString(), action.executionId, action.stepId, entryAction, decision));
+  await store.append(action.executionId, {
+    kind:
+      decision.outcome === "ALLOW"
+        ? "action_proposed"
+        : decision.outcome === "APPROVAL"
+          ? "approval_requested"
+          : "action_blocked",
+    executionId: action.executionId,
+    at: now.toISOString(),
+    stepId: action.stepId,
+    verb: action.verb,
+    outcome: decision.outcome,
+    detail: decision.reason,
+    ...(action.object !== undefined ? { object: action.object } : {}),
+    ...(resource !== undefined ? { resource } : {}),
+    ...(decision.ruleId !== undefined ? { ruleId: decision.ruleId } : {}),
+    ...(decision.sourceText !== undefined ? { sourceText: decision.sourceText } : {}),
+  });
 
   if (decision.outcome !== "ALLOW" || body.preview) {
     return { status: 200, payload: decision };
@@ -206,9 +178,7 @@ export function handleDecide(
 
   const { token } = issueToken(secret, binding, issueOpts);
 
-  counter.actionsUsed += 1;
-  counter.recent.push(now.getTime());
-  stores.counters.set(action.executionId, counter);
+  await store.countAction(action.executionId, now.getTime());
 
   return { status: 200, payload: { ...decision, token } };
 }
@@ -222,7 +192,7 @@ export interface RedeemRequest {
 }
 
 export async function handleRedeem(
-  stores: Stores,
+  store: Store,
   secret: string,
   body: RedeemRequest,
   now: Date,
@@ -234,19 +204,16 @@ export async function handleRedeem(
   };
   if (body.targetHash !== undefined) intent.targetHash = body.targetHash;
 
-  const result = await verifyAndSpend(secret, body.token, intent, stores.tokens, now);
+  const result = await verifyAndSpend(secret, body.token, intent, store.tokens, now);
 
-  const log = audit(stores, body.executionId);
-  log.push(
-    appendEntry(log.at(-1), {
-      kind: result.ok ? "action_executed" : "action_blocked",
-      executionId: body.executionId,
-      at: now.toISOString(),
-      stepId: body.stepId,
-      verb: body.verb,
-      ...(result.ok ? {} : { detail: `token rejected: ${result.reason}` }),
-    }),
-  );
+  await store.append(body.executionId, {
+    kind: result.ok ? "action_executed" : "action_blocked",
+    executionId: body.executionId,
+    at: now.toISOString(),
+    stepId: body.stepId,
+    verb: body.verb,
+    ...(result.ok ? {} : { detail: `token rejected: ${result.reason}` }),
+  });
 
   if (!result.ok) {
     // 403, not 400: the request was well-formed, the authority was not valid.
@@ -254,6 +221,9 @@ export async function handleRedeem(
   }
   return { status: 200, payload: { ok: true, claims: result.claims } };
 }
+
+export { MemoryStore, createStore };
+export type { Store };
 
 /** Absolute base for links we hand out, honouring a proxy when deployed. */
 function baseUrl(req: IncomingMessage): string {
@@ -266,7 +236,7 @@ function baseUrl(req: IncomingMessage): string {
 
 /* --------------------------------- routing -------------------------------- */
 
-export function createApp(stores: Stores, secret: string, clock: () => Date = () => new Date()) {
+export function createApp(store: Store, secret: string, clock: () => Date = () => new Date()) {
   return createServer((req, res) => {
     void (async () => {
       try {
@@ -296,8 +266,8 @@ export function createApp(stores: Stores, secret: string, clock: () => Date = ()
 
           // The policy is registered under the same id the agent will pin, so
           // publishing and executing cannot disagree about what was consented to.
-          stores.policies.set(link.policy.id, link.policy);
-          stores.links.set(link.id, link);
+          await store.putPolicy(link.policy);
+          await store.putLink(link);
 
           return json(res, 200, {
             id: link.id,
@@ -311,13 +281,13 @@ export function createApp(stores: Stores, secret: string, clock: () => Date = ()
         }
 
         if (req.method === "GET" && url.pathname.startsWith("/i/")) {
-          const link = stores.links.get(url.pathname.slice(3));
+          const link = await store.getLink(url.pathname.slice(3));
           if (!link) return html(res, 404, "<h1>No such IntentLink</h1>");
           return html(res, 200, consentPage(link, baseUrl(req)));
         }
 
         if (req.method === "GET" && url.pathname.startsWith("/v1/links/")) {
-          const link = stores.links.get(url.pathname.slice("/v1/links/".length));
+          const link = await store.getLink(url.pathname.slice("/v1/links/".length));
           if (!link) return json(res, 404, { error: "no such link" });
           // The receiver's agent needs the workflow and the policy id; the
           // policy itself stays server-side, where it is evaluated.
@@ -342,45 +312,43 @@ export function createApp(stores: Stores, secret: string, clock: () => Date = ()
           // The hash is computed here, never accepted from the client: it is an
           // integrity claim about what the service holds.
           const stored = Policy.parse({ ...parsed.data, hash: policyHash(parsed.data) });
-          stores.policies.set(stored.id, stored);
+          await store.putPolicy(stored);
           return json(res, 200, { id: stored.id, hash: stored.hash });
         }
 
         if (req.method === "POST" && url.pathname === "/v1/executions") {
           const body = (await readJson(req)) as { executionId?: string; policyId?: string };
-          const policy = body.policyId ? stores.policies.get(body.policyId) : undefined;
+          const policy = body.policyId ? await store.getPolicy(body.policyId) : undefined;
           if (!body.executionId || !policy) {
             return json(res, 400, { error: "executionId and a known policyId are required" });
           }
           // Pin the policy hash for the life of this execution, so an edit made
           // after the receiver consented cannot take effect mid-run.
-          stores.pinned.set(body.executionId, policy.hash ?? policyHash(policy));
-          const log = audit(stores, body.executionId);
-          log.push(
-            appendEntry(log.at(-1), {
-              kind: "execution_started",
-              executionId: body.executionId,
-              at: clock().toISOString(),
-            }),
-          );
-          return json(res, 200, { executionId: body.executionId, pinnedHash: stores.pinned.get(body.executionId) });
+          const pinnedHash = policy.hash ?? policyHash(policy);
+          await store.pin(body.executionId, pinnedHash);
+          await store.append(body.executionId, {
+            kind: "execution_started",
+            executionId: body.executionId,
+            at: clock().toISOString(),
+          });
+          return json(res, 200, { executionId: body.executionId, pinnedHash });
         }
 
         if (req.method === "POST" && url.pathname === "/v1/decide") {
           const body = (await readJson(req)) as DecideRequest;
-          const { status, payload } = handleDecide(stores, secret, body, clock());
+          const { status, payload } = await handleDecide(store, secret, body, clock());
           return json(res, status, payload);
         }
 
         if (req.method === "POST" && url.pathname === "/v1/redeem") {
           const body = (await readJson(req)) as RedeemRequest;
-          const { status, payload } = await handleRedeem(stores, secret, body, clock());
+          const { status, payload } = await handleRedeem(store, secret, body, clock());
           return json(res, status, payload);
         }
 
         if (req.method === "GET" && url.pathname.startsWith("/v1/audit/")) {
           const executionId = decodeURIComponent(url.pathname.slice("/v1/audit/".length));
-          const log = stores.audit.get(executionId) ?? [];
+          const log = await store.getAudit(executionId);
           return json(res, 200, {
             entries: log,
             summary: summarize(log),
@@ -402,7 +370,11 @@ export function createApp(stores: Stores, secret: string, clock: () => Date = ()
 const isEntrypoint = process.argv[1]?.endsWith("server.js");
 if (isEntrypoint) {
   const port = Number(process.env.PORT ?? 8080);
-  createApp(emptyStores(), requireSecret()).listen(port, () => {
-    console.log(`policy service listening on :${port}`);
+  // Top-level await: the store may need to construct a Firestore client.
+  const store = await createStore();
+  createApp(store, requireSecret()).listen(port, () => {
+    console.log(
+      `policy service listening on :${port} (store: ${process.env.INTENTLINK_STORE ?? "memory"})`,
+    );
   });
 }

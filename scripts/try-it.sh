@@ -116,9 +116,43 @@ cmd_loop() {
     .venv/bin/python -m pytest tests/test_loop.py -q )
 }
 
+# A previous run that was killed rather than stopped leaves its listener
+# behind, and the next start dies on EADDRINUSE with a stack trace. These are
+# our own services on our own fixed ports, so reclaiming them is safe - but
+# only after checking that what is there IS ours.
+reclaim_port() {
+  local port=$1 pids
+  pids=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null) || return 0
+  [ -n "$pids" ] || return 0
+
+  for pid in $pids; do
+    local cmd; cmd=$(ps -p "$pid" -o command= 2>/dev/null)
+    case "$cmd" in
+      *apps/api/dist/server.js*|*intentlink_agent.service*)
+        echo "  reclaiming port $port from a previous run (pid $pid)"
+        kill "$pid" 2>/dev/null || true
+        ;;
+      *)
+        die "Port $port is in use by something that is not IntentLink:
+  $cmd
+Stop it, or change the port."
+        ;;
+    esac
+  done
+
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN -t >/dev/null 2>&1 || return 0
+    sleep 0.3
+  done
+  die "Port $port did not free up."
+}
+
 cmd_serve() {
   need_key
   [ -d apps/agent/.venv ] || die "No agent venv. See apps/agent/README.md"
+
+  reclaim_port 8080
+  reclaim_port 8081
 
   local secret; secret=$(openssl rand -hex 32)
   bold "Starting both services"

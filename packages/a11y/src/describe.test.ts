@@ -152,3 +152,14 @@ test("ordinal appears only when role+name is genuinely ambiguous", () => {
   // ...and nearby text gives resolution something better than the ordinal.
   assert.ok(second.nearby?.some((n) => n.includes("acme-sandbox")));
 });
+
+test("a presentational wrapper reports its structural role, not none", () => {
+  // YouTube wraps real controls in role="none". A descriptor of
+  // role "none" with the right name matches no control anywhere, so the
+  // recorded step could never be resolved.
+  const el = pick(`<div role="none"><span>Light theme</span></div>`, "div");
+  assert.notEqual(describeEl(el).role, "none");
+
+  const button = pick(`<button role="presentation">Light theme</button>`, "button");
+  assert.equal(describeEl(button).role, "button");
+});

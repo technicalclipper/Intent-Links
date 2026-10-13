@@ -82,11 +82,22 @@ export const LANDMARK_ROLES = new Set([
   "navigation", "region", "search", "dialog", "alertdialog",
 ]);
 
+/**
+ * Roles that explicitly remove an element from the accessibility tree.
+ *
+ * YouTube and other component-heavy apps wrap real controls in these, and a
+ * recording that captured the wrapper produced a descriptor nothing could
+ * ever resolve: role "none", with the right name, matching no control.
+ */
+export const PRESENTATIONAL_ROLES = new Set(["none", "presentation"]);
+
 export function resolveRole(el: Element): string {
   const explicit = el.getAttribute("role");
   if (explicit) {
-    const first = explicit.trim().split(/\s+/)[0];
-    if (first) return first.toLowerCase();
+    const first = explicit.trim().split(/\s+/)[0]?.toLowerCase();
+    // Fall through to the implicit role: a presentational wrapper around a
+    // button is still, structurally, whatever its tag says it is.
+    if (first && !PRESENTATIONAL_ROLES.has(first)) return first;
   }
 
   const tag = el.tagName.toLowerCase();

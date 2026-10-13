@@ -109,10 +109,14 @@ function interactiveAncestor(start: Element | null): Element | null {
   let node: Element | null = start;
   let hops = 0;
   while (node && hops++ < 12) {
-    const role = node.getAttribute("role");
+    const role = node.getAttribute("role")?.trim().toLowerCase();
     const tag = node.tagName.toLowerCase();
+    // role="none" / "presentation" means the author took this element OUT of
+    // the accessibility tree. It is a wrapper, not the control, and keeping
+    // it produced descriptors that named the right thing and matched nothing.
+    const presentational = role === "none" || role === "presentation";
     const interactive =
-      role ||
+      (role && !presentational) ||
       ["a", "button", "input", "select", "textarea", "summary", "label"].includes(tag) ||
       node.hasAttribute("tabindex") ||
       node.getAttribute("contenteditable") === "true";
@@ -161,6 +165,10 @@ export class Recorder {
     // A nested frame changing its own URL is not the person navigating, and
     // with the script in every frame those would otherwise flood the trace.
     if (window.top !== window.self) return;
+    // Nor is the browser's own prefetching. A real recording opened with
+    // Chrome fetching google.com/search/warmup.html, which then became the
+    // page the receiver was sent to.
+    if (/\b(warmup|newtab|blank)\b/.test(location.pathname)) return;
     const here = location.pathname + location.search;
     if (here === this.lastRoute) return;
     this.lastRoute = here;

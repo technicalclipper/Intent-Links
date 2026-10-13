@@ -284,3 +284,15 @@ test("app identity covers any site, not a list of known ones", () => {
     assert.equal(appIdentityFor(host), expected, `${host} should be ${expected}`);
   }
 });
+
+test("browser-internal pages are not somewhere a person did anything", () => {
+  // A recording began with Chrome prefetching /search/warmup.html, which was
+  // taken as the workflow's starting page and sent the receiver to a blank
+  // Google tab with nothing to resolve against.
+  for (const junk of ["/search/warmup.html", "/newtab", "/blank"]) {
+    assert.match(junk, /\b(warmup|newtab|blank)\b/, `${junk} should be recognised as internal`);
+  }
+  for (const real of ["/account", "/watch", "/admin/channels", "/feed/subscriptions"]) {
+    assert.doesNotMatch(real, /\b(warmup|newtab|blank)\b/, `${real} is a real page`);
+  }
+});

@@ -68,6 +68,32 @@ function linkId(): string {
   return [...bytes].map((b) => alphabet[b % alphabet.length]).join("");
 }
 
+/**
+ * Where the receiver's browser should go first.
+ *
+ * Not simply the trace's first event. A browser does its own navigating
+ * before the person does theirs - a real recording opened with Chrome's
+ * prefetch of google.com/search/warmup.html, and sending the receiver there
+ * meant the run began on a blank Google page with nothing to resolve
+ * against.
+ *
+ * The first STEP says which app the work is in, so the start is the first
+ * recorded page belonging to that app.
+ */
+function startUrlFor(trace: Trace, intent: IntentLink): string | undefined {
+  const app = intent.steps[0]?.app;
+
+  const usable = trace.events.filter((e) => {
+    if (!/^https?:/.test(e.page.origin)) return false;
+    // Browser-internal pages are not somewhere a person did anything.
+    return !/\b(warmup|newtab|blank)\b/.test(e.page.path);
+  });
+
+  const inApp = app ? usable.find((e) => e.page.app === app) : undefined;
+  const chosen = inApp ?? usable[0];
+  return chosen ? `${chosen.page.origin}${chosen.page.path}` : undefined;
+}
+
 /** app -> origin, taken from the recording rather than guessed. */
 function originsFromTrace(trace: Trace): Record<string, string> {
   const origins: Record<string, string> = {};
@@ -112,11 +138,9 @@ export async function publish(
     status: "published",
   });
 
-  const first = trace.events.find((e) => e.page.origin);
-
   return {
     id: linkId(),
-    ...(first ? { startUrl: `${first.page.origin}${first.page.path}` } : {}),
+    ...(startUrlFor(trace, published) ? { startUrl: startUrlFor(trace, published) } : {}),
     intent: published,
     policy,
     bindings: compiled.bindings,

@@ -585,6 +585,17 @@ async function authorizeAndAct(
     },
   })) as ActResult | undefined;
 
+  /*
+   * Let the page react before anything looks at it again.
+   *
+   * A menu animates open, a panel renders, a route transitions. The next
+   * step's control frequently does not EXIST until the previous action has
+   * settled - opening the account menu is what makes "Appearance" appear -
+   * and observing immediately finds a page that has not changed yet, then
+   * reports the control as missing.
+   */
+  if (result?.ok) await new Promise((r) => setTimeout(r, 650));
+
   await note({
     verdict: result?.ok ? "ALLOW" : "failed",
     stepId: instruction.stepId,

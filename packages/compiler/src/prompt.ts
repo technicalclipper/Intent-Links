@@ -154,14 +154,30 @@ these verbs.
 
 OTHER RULES
 
-* Group related events into one step. Opening a dialog, filling three fields
-  and submitting is ONE step, not five.
-* But do NOT merge actions a boundary might need to govern separately. Setting
-  a channel's visibility is its own step even though it happens in the same
-  dialog as creating the channel, because a creator may want to permit one and
-  forbid the other. Over-merging silently removes the seams policy attaches to.
-  Observed failure: a model that collapsed this workflow into two steps lost
-  the visibility constant, the board key and the severity condition with them.
+ONE STEP IS ONE INTERACTION
+
+A step is performed by a single click, toggle, selection or typed value. It is
+not a paragraph describing several of them.
+
+This is a hard constraint, not a preference: the receiver's agent performs
+exactly one action per step, so anything you merge away never happens. A
+recording of three clicks - open the account menu, open Appearance, choose
+Light theme - compiled to one step called "set theme" performs the FIRST
+click and stops, and the receiver is told the workflow succeeded with the menu
+sitting open.
+
+Navigation counts. Opening a menu to reach a control is its own step, because
+the control does not exist until the menu is open. So is dismissing a dialog,
+expanding a section, or switching a tab.
+
+Merging also removes the seams a boundary attaches to. A creator may want to
+permit creating a channel and forbid making it public; if both live in one
+step there is nothing for the rule to land on. A model that collapsed an
+earlier workflow into two steps lost a constant, a board key and a condition
+along with them.
+
+Give each step the ONE event it performs in sourceEvents, and use dependsOn to
+record that the later ones need the earlier.
 * dependsOn captures real ordering constraints, not merely observed sequence.
 * Skip events that achieved nothing: stray clicks, navigation that was undone,
   a field filled then cleared.

@@ -46,27 +46,70 @@ function isTriState(v: string | null): boolean | "mixed" | undefined {
   return undefined;
 }
 
-/** Nearest heading or labelled group above this element — "Budget scope". */
+const HEADING_SELECTOR = "h1,h2,h3,h4,h5,h6";
+
+function headingText(el: Element): string | undefined {
+  const tag = el.tagName.toLowerCase();
+  const isHeading = /^h[1-6]$/.test(tag) || el.getAttribute("role") === "heading";
+  if (!isHeading) return undefined;
+  const text = el.textContent?.replace(/\s+/g, " ").trim();
+  return text ? text.slice(0, 512) : undefined;
+}
+
+/**
+ * Nearest heading or labelled group above this element — "Budget scope".
+ *
+ * Deliberately avoids querySelector on each ancestor. The obvious version
+ * asked every ancestor for a heading anywhere beneath it, which scans that
+ * ancestor's whole SUBTREE - and near the root that is the entire document.
+ * Repeated per candidate it is quadratic: a benchmark on a few hundred
+ * controls did not finish in five minutes.
+ *
+ * A heading describing an element precedes it, so looking at preceding
+ * siblings at each level finds the same answer in time proportional to the
+ * siblings rather than the document.
+ */
 function sectionOf(el: Element): string | undefined {
   let node: Element | null = parentOf(el);
   let hops = 0;
-  while (node && hops++ < 20) {
+
+  while (node && hops++ < 12) {
     const labelled = node.getAttribute?.("aria-label");
     if (labelled && labelled.trim()) return labelled.trim().slice(0, 512);
 
-    // A fieldset is named by its legend.
+    // A fieldset is named by its legend, which is its first child by spec.
     if (node.tagName.toLowerCase() === "fieldset") {
-      const legend = node.querySelector("legend");
-      const t = legend?.textContent?.replace(/\s+/g, " ").trim();
-      if (t) return t.slice(0, 512);
+      for (const child of Array.from(node.children)) {
+        if (child.tagName.toLowerCase() === "legend") {
+          const t = child.textContent?.replace(/\s+/g, " ").trim();
+          if (t) return t.slice(0, 512);
+          break;
+        }
+      }
     }
 
-    // Otherwise the nearest preceding heading within this container.
-    const heading = node.querySelector("h1,h2,h3,h4,h5,h6,[role='heading']");
-    if (heading && heading !== el) {
-      const t = heading.textContent?.replace(/\s+/g, " ").trim();
-      if (t) return t.slice(0, 512);
+    // Headings that precede this subtree, nearest first.
+    let sibling: Element | null = node.previousElementSibling;
+    let scanned = 0;
+    while (sibling && scanned++ < 20) {
+      const direct = headingText(sibling);
+      if (direct) return direct;
+      // A wrapper whose leading content is a heading, e.g. <div><h2>…</h2>…
+      const nested = sibling.firstElementChild;
+      if (nested) {
+        const text = headingText(nested);
+        if (text) return text;
+      }
+      sibling = sibling.previousElementSibling;
     }
+
+    // Or a heading among this container's own leading children.
+    for (const child of Array.from(node.children).slice(0, 8)) {
+      if (child === el) break;
+      const text = headingText(child);
+      if (text) return text;
+    }
+
     node = parentOf(node);
   }
   return undefined;
@@ -124,6 +167,22 @@ function nearbyText(el: Element): string[] | undefined {
     node = parentOf(node);
   }
   return undefined;
+}
+
+/** The nearest grouping ancestor's controls, or nothing. Bounded on purpose. */
+function twinPool(el: Element): Element[] {
+  let node: Element | null = parentOf(el);
+  let hops = 0;
+  while (node && hops++ < 6) {
+    const role = resolveRole(node);
+    if (["table", "list", "rowgroup", "group", "listbox", "menu", "form"].includes(role)) {
+      const found = Array.from(node.querySelectorAll("*"));
+      // A pathological container is not worth disambiguating within.
+      return found.length <= 500 ? found : [];
+    }
+    node = parentOf(node);
+  }
+  return [];
 }
 
 function valueOf(el: Element): string | undefined {
@@ -197,15 +256,28 @@ export function describe(el: Element, opts: DescribeOptions = {}): ElementDescri
   if (nearby?.length) d.nearby = nearby;
 
   // Ordinal is identity of last resort: only when role+name alone is ambiguous.
-  const pool =
-    opts.siblings ??
-    (el.ownerDocument ? Array.from(el.ownerDocument.querySelectorAll("*")) : []);
-  const twins = pool.filter(
-    (c) => resolveRole(c) === role && accessibleName(c).name === name,
-  );
-  if (twins.length > 1) {
-    const idx = twins.indexOf(el);
-    if (idx >= 0) d.ordinal = idx;
+  /*
+   * Ordinals are NOT computed here when a pool is supplied.
+   *
+   * The pool version called accessibleName on every pool member for every
+   * candidate, and resolve() passes the whole candidate list as the pool - so
+   * n candidates cost n^2 accessible-name computations. On a few hundred
+   * controls that was 500ms; on six hundred it was eighty seconds.
+   *
+   * resolve() has the whole described set in one place and assigns ordinals in
+   * a single pass, which is linear. A direct caller with no pool gets the
+   * bounded container scan below, since that is a last-resort disambiguator
+   * off any hot path.
+   */
+  if (!opts.siblings) {
+    const pool = twinPool(el);
+    const twins = pool.filter(
+      (c) => resolveRole(c) === role && accessibleName(c).name === name,
+    );
+    if (twins.length > 1) {
+      const idx = twins.indexOf(el);
+      if (idx >= 0) d.ordinal = idx;
+    }
   }
 
   return d;

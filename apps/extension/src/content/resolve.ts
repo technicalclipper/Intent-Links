@@ -248,11 +248,14 @@ export function resolve(
   const elements = interactiveElements(opts.root);
   const handles = new Map<number, Element>();
 
+  // Described once, then ordinals assigned in a single pass below. Asking
+  // describe() to work out an ordinal per element made this quadratic.
+  const described = elements.map((el) => describe(el, { includeValue: false, siblings: [] }));
+  assignOrdinals(described);
+
   const scored: ScoredCandidate[] = [];
   elements.forEach((el, index) => {
-    // Passing the pool keeps describe() from scanning the whole document to
-    // work out an ordinal - which was both slow and wrong across shadow roots.
-    const descriptor = describe(el, { includeValue: false, siblings: elements });
+    const descriptor = described[index]!;
     let best = 0;
     for (const hint of hints) best = Math.max(best, score(hint, descriptor));
     if (best <= 0) return;
@@ -289,6 +292,29 @@ export function resolve(
       : top.tier;
 
   return { candidates, tier, handles };
+}
+
+/**
+ * Mark identical controls with their position among themselves.
+ *
+ * One pass over the described set, rather than each descriptor searching for
+ * its own twins - which cost a full accessible-name computation per pair and
+ * made resolution quadratic in the number of controls on the page.
+ */
+export function assignOrdinals(descriptors: ElementDescriptor[]): void {
+  const groups = new Map<string, ElementDescriptor[]>();
+  for (const d of descriptors) {
+    const key = `${d.role}\u0000${d.name}`;
+    const group = groups.get(key);
+    if (group) group.push(d);
+    else groups.set(key, [d]);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    group.forEach((d, i) => {
+      d.ordinal = i;
+    });
+  }
 }
 
 /**

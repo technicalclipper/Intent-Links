@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { parseHTML } from "linkedom";
 import type { ElementDescriptor } from "@intentlink/schema";
 import {
+  assignOrdinals,
   CONFIDENCE_FLOOR,
   normalize,
   resolve,
@@ -328,4 +329,43 @@ test("a switch is toggled even when the verb sounds like typing", () => {
   const doc = mount(`<div id="sw" role="switch" aria-checked="false">Autoplay</div>`);
   const el = doc.querySelector("#sw") as unknown as Element;
   assert.equal(operationFor(el, "set_autoplay", "on"), "toggle");
+});
+
+/* --------------------------- ordinals, done once -------------------------- */
+
+test("ordinals are assigned in one pass, not per descriptor", () => {
+  // Each descriptor searching for its own twins cost a full accessible-name
+  // computation per pair: 600 controls took eighty seconds. One pass over the
+  // described set is linear.
+  const descriptors = [
+    { role: "button", name: "Remove" },
+    { role: "button", name: "Remove" },
+    { role: "button", name: "Remove" },
+    { role: "button", name: "Save" },
+  ];
+  assignOrdinals(descriptors as never);
+
+  assert.deepEqual(descriptors.map((d) => (d as { ordinal?: number }).ordinal), [0, 1, 2, undefined]);
+});
+
+test("resolution stays fast on a page with many controls", () => {
+  let html = "<main><h1>App</h1>";
+  for (let s = 0; s < 40; s++) {
+    html += `<section><h2>Section ${s}</h2><div><div role="group">`;
+    for (let i = 0; i < 10; i++) {
+      html += `<div><label for="c${s}_${i}">Control ${s}-${i}</label>
+               <input id="c${s}_${i}" role="switch" type="checkbox"></div>`;
+    }
+    html += `</div></div></section>`;
+  }
+  mount(html + "</main>");
+
+  const started = Date.now();
+  const { candidates } = resolve([hint({ role: "switch", name: "Control 3-7", nameSource: "label" })]);
+  const elapsed = Date.now() - started;
+
+  assert.equal(candidates[0]?.descriptor.name, "Control 3-7");
+  // Generous, because CI machines vary - but 400 controls used to take two and
+  // a half seconds, so this fails loudly if the quadratic returns.
+  assert.ok(elapsed < 1000, `resolution took ${elapsed}ms on 400 controls`);
 });

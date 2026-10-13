@@ -89,6 +89,19 @@ async function note(entry: Omit<TimelineEntry, "at">): Promise<void> {
 
 /* ------------------------------- starting -------------------------------- */
 
+interface CompiledStep {
+  id: string;
+  title: string;
+  app: string;
+  hints: unknown[];
+  condition?: string;
+  action: {
+    verb: string;
+    object?: string;
+    args: Record<string, { literal?: string | number | boolean; param?: string }>;
+  };
+}
+
 interface LinkResponse {
   id: string;
   startUrl?: string;
@@ -96,7 +109,7 @@ interface LinkResponse {
     title: string;
     goal: string;
     params: ExecutionState["pendingParams"];
-    steps: Array<{ id: string; title: string; hints: unknown[] }>;
+    steps: CompiledStep[];
   };
   policyId: string;
   agentUrl?: string;
@@ -146,6 +159,52 @@ export async function beginRun(linkId: string, api: string): Promise<ExecutionSt
     agent,
     pendingParams: params,
   });
+}
+
+/* -------------------------------- fast path ------------------------------- */
+
+/**
+ * Resolve a step without asking the model.
+ *
+ * The agent exists to make a judgment - which control on this page satisfies
+ * the step - and when the deterministic resolver returns one exact,
+ * unambiguous match there is no judgment left to make. Asking anyway costs a
+ * full model turn, two to four seconds, on every action of every run.
+ *
+ * This is not a shortcut around the policy engine. The action still goes to
+ * /decide, still needs a token, still gets redeemed. Only the model is
+ * skipped, and only when it would have nothing to contribute.
+ */
+const FAST_PATH_CONFIDENCE = 0.995;
+
+function fastPathCandidate(
+  candidates: FramedCandidate[],
+): FramedCandidate | undefined {
+  const [best, runnerUp] = candidates;
+  if (!best || best.tier !== "exact" || best.confidence < FAST_PATH_CONFIDENCE) {
+    return undefined;
+  }
+  // An exact match that something else nearly ties is not unambiguous, and
+  // choosing between them is exactly the judgment worth paying for.
+  if (runnerUp && best.confidence - runnerUp.confidence < 0.05) return undefined;
+  return best;
+}
+
+/** The step's own action, with the receiver's parameters filled in. */
+function actionFor(
+  step: CompiledStep,
+  params: Record<string, string>,
+): { verb: string; object?: string; args: Record<string, string | number | boolean> } {
+  const args: Record<string, string | number | boolean> = {};
+  for (const [name, arg] of Object.entries(step.action.args ?? {})) {
+    if (arg.literal !== undefined) args[name] = arg.literal;
+    else if (arg.param && params[arg.param] !== undefined) args[name] = params[arg.param]!;
+  }
+  return {
+    verb: step.action.verb,
+    ...(step.action.object !== undefined ? { object: step.action.object } : {}),
+    args,
+  };
 }
 
 /* --------------------------------- the loop ------------------------------- */
@@ -251,6 +310,90 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
 
     const step = link.intent.steps[Math.min(stepIndex, link.intent.steps.length - 1)];
     const observation = await observe(tabId, step?.hints ?? []);
+
+    /*
+     * When resolution is certain, act without a model turn.
+     *
+     * A conditional step is excluded: deciding whether the condition holds on
+     * this page IS a judgment, and the resolver has no opinion about it.
+     */
+    const certain = step && !step.condition ? fastPathCandidate(observation.candidates) : undefined;
+    if (certain && step) {
+      const { verb, object, args } = actionFor(step, params);
+      const decided = await decide(state.api, {
+        policyId: link.policyId,
+        executionId,
+        stepId: step.id,
+        verb,
+        ...(object !== undefined ? { object } : {}),
+        args,
+        origin: new URL(link.startUrl ?? "https://localhost").origin,
+        targetHash: certain.targetHash,
+        targetName: certain.descriptor.name,
+      });
+
+      if (decided?.outcome === "ALLOW" && decided.token) {
+        const result = await authorizeAndAct(
+          tabId,
+          state.api,
+          executionId,
+          {
+            handle: certain.handle,
+            verb,
+            ...(object !== undefined ? { object } : {}),
+            ...(typeof args["value"] === "string" ? { value: args["value"] } : {}),
+            targetHash: certain.targetHash,
+            targetName: certain.descriptor.name,
+            stepId: step.id,
+          },
+          decided.token,
+          certain.frameId,
+        );
+        lastResult = { stepId: step.id, ...result };
+        if (result.status === "done") {
+          performed.add(step.id);
+          const tally = await getExecution();
+          await patch({ allowed: tally.allowed + 1 });
+          stepIndex++;
+          if (stepIndex >= link.intent.steps.length) {
+            await patch({ status: "done" });
+            await note({ verdict: "info", detail: "Finished." });
+            return;
+          }
+          continue;
+        }
+        // Fell through: let the agent see the failure and decide what next.
+      } else if (decided && decided.outcome !== "ALLOW") {
+        // A refusal is the engine's answer, not something to re-ask a model
+        // about. Record it and move on exactly as the slow path does.
+        const tally = await getExecution();
+        await patch({
+          blocked: tally.blocked + (decided.outcome === "DENY" ? 1 : 0),
+          approvals: tally.approvals + (decided.outcome === "APPROVAL" ? 1 : 0),
+          lastBlock: {
+            reason: decided.reason,
+            ...(decided.sourceText ? { boundary: decided.sourceText } : {}),
+            ...(decided.suggestion ? { suggestion: decided.suggestion } : {}),
+          },
+          ...(decided.outcome === "APPROVAL" ? { status: "awaiting_approval" as const } : {}),
+        });
+        await note({
+          verdict: decided.outcome === "DENY" ? "DENY" : "APPROVAL",
+          stepId: step.id,
+          verb,
+          detail: decided.reason,
+          ...(decided.sourceText ? { boundary: decided.sourceText } : {}),
+        });
+        if (decided.outcome === "APPROVAL") return;
+        lastResult = { stepId: step.id, status: "blocked" };
+        stepIndex++;
+        if (stepIndex >= link.intent.steps.length) {
+          await patch({ status: "done" });
+          return;
+        }
+        continue;
+      }
+    }
 
     let reply: TurnResponse;
     try {
@@ -633,6 +776,31 @@ async function verify(
     assertion: assertion as never,
   })) as { passed?: boolean } | undefined;
   return result?.passed === true;
+}
+
+/** Ask the authority directly. Used by the fast path; same endpoint, same rules. */
+async function decide(
+  api: string,
+  body: Record<string, unknown>,
+): Promise<
+  | { outcome: string; reason: string; token?: string; sourceText?: string; suggestion?: string }
+  | undefined
+> {
+  const { policyId, ...action } = body;
+  try {
+    return await readJson(
+      await fetch(`${api}/v1/decide`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ policyId, action }),
+      }),
+      "asking whether this action is permitted",
+    );
+  } catch {
+    // An authority we cannot reach is not a permissive one; fall back to the
+    // agent path, which will surface the failure properly.
+    return undefined;
+  }
 }
 
 async function send(tabId: number, frameId: number, message: WorkerMessage): Promise<unknown> {

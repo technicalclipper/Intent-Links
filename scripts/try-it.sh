@@ -28,7 +28,16 @@ cmd_build() {
   npm install --silent
   npm run build --workspaces --if-present
   ( cd apps/extension && npm run build )
-  echo "Built. Extension bundle: apps/extension/dist"
+  cat <<EOF
+Built. Extension bundle: apps/extension/dist
+
+  Reload it at chrome://extensions, and publish a FRESH link - a published
+  IntentLink keeps the policy it was compiled with.
+
+  This builds TypeScript only. The Python agent reloads itself while
+  \`try-it.sh serve\` is running, but if you started it some other way,
+  restart it.
+EOF
 }
 
 cmd_test() {
@@ -136,7 +145,8 @@ EOF
   INTENTLINK_TOKEN_SECRET="$secret" \
   INTENTLINK_POLICY_URL="http://127.0.0.1:8080" \
     apps/agent/.venv/bin/python -m uvicorn intentlink_agent.service:app \
-      --app-dir apps/agent --port 8081 --log-level warning &
+      --app-dir apps/agent --port 8081 --log-level warning --reload \
+      --reload-dir apps/agent/intentlink_agent &
   AGENT_PID=$!
 
   # Both die together: a half-running system is worse than a stopped one,

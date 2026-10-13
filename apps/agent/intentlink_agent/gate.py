@@ -166,6 +166,16 @@ def make_policy_gate(client: PolicyClient | None = None):
             }
 
         action = _action_from(args, ctx, tool.name)
+
+# A known step with no declaration means the running agent and the published
+        # workflow disagree about what exists. Falling back to the model's version
+        # hides that behind a refusal naming a verb the policy never mentioned.
+        known_steps = state.get(STEP_ARGS_KEY) or {}
+        undeclared = (
+            tool.name in ACTING_TOOLS
+            and bool(known_steps)
+            and action.step_id not in known_steps
+        )
         decision = await policy.decide(
             str(policy_id),
             action,
@@ -174,7 +184,14 @@ def make_policy_gate(client: PolicyClient | None = None):
         )
 
         if decision.outcome == "DENY":
-            return _blocked(decision)
+            blocked = _blocked(decision)
+            if undeclared:
+                blocked["reason"] = (
+                    f'{blocked["reason"]} (step "{step_id}" is not part of this '
+                    f"IntentLink - the running agent and the published workflow disagree; "
+                    f"restart the agent service and publish a fresh link)"
+                )
+            return blocked
 
         if decision.outcome == "APPROVAL":
             ctx.request_confirmation(

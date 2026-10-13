@@ -128,6 +128,11 @@ cmd_serve() {
 
 EOF
 
+  # Python gets nothing from node's --env-file, so .env is exported here. The
+  # agent needs GOOGLE_API_KEY and INTENTLINK_MODEL_RUNTIME, and without them
+  # it starts fine and then 500s on the first turn.
+  set -a; . "$ROOT/.env"; set +a
+
   INTENTLINK_TOKEN_SECRET="$secret" \
   INTENTLINK_POLICY_URL="http://127.0.0.1:8080" \
     apps/agent/.venv/bin/python -m uvicorn intentlink_agent.service:app \

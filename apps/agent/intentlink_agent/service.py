@@ -34,7 +34,34 @@ from .policy_client import PolicyClient
 
 APP_NAME = "intentlink"
 
+def _check_config() -> None:
+    """Fail at startup, not on the first turn.
+
+    A missing model name raised from build_agent() on the first request, which
+    FastAPI turned into a plain-text 500 - and the receiver saw a JSON parse
+    error from the extension rather than the actual problem. Configuration
+    mistakes should be loud, immediate, and attached to the thing that is
+    wrong.
+    """
+    missing = [
+        name
+        for name in ("GOOGLE_API_KEY", "INTENTLINK_MODEL_RUNTIME")
+        if not os.environ.get(name)
+    ]
+    if missing:
+        raise RuntimeError(
+            "the agent cannot run without "
+            + ", ".join(missing)
+            + ". Put them in .env; `./scripts/try-it.sh serve` exports it."
+        )
+
+
 app = FastAPI(title="IntentLink receiver agent")
+
+
+@app.on_event("startup")
+async def _startup() -> None:
+    _check_config()
 
 _sessions = InMemorySessionService()
 _policy = PolicyClient()

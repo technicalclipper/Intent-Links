@@ -29,6 +29,28 @@ import type {
 
 const KEY = "intentlink:execution";
 
+/**
+ * Read a JSON response, or explain what actually came back.
+ *
+ * A failing service does not always answer in JSON - uvicorn returns a plain
+ * "Internal Server Error", a proxy returns HTML - and calling .json() on that
+ * throws a parse error that names the first character of the body. The
+ * receiver then sees `Unexpected token 'I'` instead of "the agent crashed",
+ * which hides the real failure behind a decoy.
+ */
+async function readJson<T>(res: Response, what: string): Promise<T> {
+  const body = await res.text();
+  if (!res.ok) {
+    const detail = body.trim().slice(0, 200) || res.statusText;
+    throw new Error(`${what} failed (${res.status}): ${detail}`);
+  }
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new Error(`${what} returned something that is not JSON: ${body.slice(0, 200)}`);
+  }
+}
+
 export const IDLE: ExecutionState = {
   status: "idle",
   allowed: 0,
@@ -93,9 +115,10 @@ export async function beginRun(linkId: string, api: string): Promise<ExecutionSt
 
   let link: LinkResponse;
   try {
-    const res = await fetch(`${api}/v1/links/${encodeURIComponent(linkId)}`);
-    if (!res.ok) throw new Error(`link not found (${res.status})`);
-    link = (await res.json()) as LinkResponse;
+    link = await readJson<LinkResponse>(
+      await fetch(`${api}/v1/links/${encodeURIComponent(linkId)}`),
+      "loading the IntentLink",
+    );
   } catch (err) {
     return patch({
       status: "failed",
@@ -156,24 +179,30 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
     return;
   }
 
-  // Fetch the workflow again rather than trusting anything cached: the steps
-  // and their hints are what we resolve against.
-  const link = (await (await fetch(`${state.api}/v1/links/${state.linkId}`)).json()) as LinkResponse;
-
+  let link: LinkResponse;
   let executionId: string;
   try {
-    const res = await fetch(`${state.agent}/v1/run/start`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        intent: (link as unknown as { intent: unknown }).intent,
-        policy_id: link.policyId,
-        params,
-        receiver: null,
+    // Fetched again rather than trusted from before: the steps and their hints
+    // are what we resolve against.
+    link = await readJson<LinkResponse>(
+      await fetch(`${state.api}/v1/links/${state.linkId}`),
+      "loading the IntentLink",
+    );
+
+    const started = await readJson<{ execution_id: string }>(
+      await fetch(`${state.agent}/v1/run/start`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          intent: (link as unknown as { intent: unknown }).intent,
+          policy_id: link.policyId,
+          params,
+          receiver: null,
+        }),
       }),
-    });
-    if (!res.ok) throw new Error(`agent refused to start (${res.status})`);
-    executionId = ((await res.json()) as { execution_id: string }).execution_id;
+      "starting the run",
+    );
+    executionId = started.execution_id;
   } catch (err) {
     await patch({
       status: "failed",
@@ -196,16 +225,18 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
 
     let reply: TurnResponse;
     try {
-      const res = await fetch(`${state.agent}/v1/run/turn`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          execution_id: executionId,
-          observation,
-          last_result: lastResult,
+      reply = await readJson<TurnResponse>(
+        await fetch(`${state.agent}/v1/run/turn`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            execution_id: executionId,
+            observation,
+            last_result: lastResult,
+          }),
         }),
-      });
-      reply = (await res.json()) as TurnResponse;
+        "asking the agent what to do next",
+      );
     } catch (err) {
       await patch({
         status: "failed",

@@ -218,12 +218,25 @@ space, put it in unmatchedClauses verbatim. A boundary silently dropped is
 worse than one the creator is told about: they believe they are protected and
 they are not.
 
-unmatchedClauses is for restrictions only. Do not list a clause that merely
-describes something the creator wants done - "and like the video which i did"
-is a permission, the recording already granted it, and reporting it as
-unenforceable tells the receiver a step will not run when it will. Likewise
-skip pure context: "go to youtube.com" says where the work happens, not what
-is forbidden.
+unmatchedClauses is for RESTRICTIONS ONLY, and most of a sentence is not one.
+
+A restriction forbids something, limits it, or requires someone to approve it.
+If a fragment does none of those, it does not belong here at all - not even to
+note that you could not compile it.
+
+  "from dark mode"            the state it starts in. Context.
+  "go to youtube.com"         where the work happens. Context.
+  "and like the video"        something to DO. The recording granted it.
+  "the one I searched for"    which thing. Context.
+
+  "don't delete anything"     a restriction.
+  "only light mode"           a restriction (on a value).
+  "ask me before sending"     a restriction (an approval).
+
+Do not break a sentence into fragments looking for things to report. A
+creator writing "change it to light mode from dark mode" has stated ONE
+intention and zero restrictions, and reporting "from dark mode" as an
+unenforceable boundary tells the receiver something is wrong when nothing is.
 `.trim();
 
 /**

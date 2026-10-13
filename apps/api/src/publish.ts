@@ -180,8 +180,23 @@ export function consentPage(link: PublishedLink, baseUrl: string): string {
     )
     .join("");
 
-  const errors = link.diagnostics.filter((d) => d.severity === "error");
-  const warnings = link.diagnostics.filter((d) => d.severity === "warning");
+  /*
+   * Two different kinds of bad news, and only one of them is fatal.
+   *
+   * A blocked step means the workflow literally cannot complete - there is
+   * nothing to consent to. A boundary that could not be compiled means the
+   * run would have LESS protection than the creator described, which is a
+   * risk for the receiver to weigh about their own account, not a reason to
+   * refuse on their behalf. Conflating them disabled the button over a
+   * sentence fragment ("from dark mode") that was never a restriction.
+   */
+  const blocking = link.diagnostics.filter(
+    (d) => d.severity === "error" && d.code !== "unmatched_clause",
+  );
+  const unenforced = link.diagnostics.filter((d) => d.code === "unmatched_clause");
+  const warnings = link.diagnostics.filter(
+    (d) => d.severity === "warning" && d.code !== "unmatched_clause",
+  );
 
   return `<!doctype html>
 <html lang="en"><head>
@@ -216,6 +231,9 @@ export function consentPage(link: PublishedLink, baseUrl: string): string {
   code{font-family:var(--mono);font-size:13px}
   .err{border-color:var(--deny)}
   .err h2{color:var(--deny)}
+  .warn{border-color:var(--approve)}
+  .warn h2{color:var(--approve)}
+  .small{color:var(--dim);font-size:13px;margin:8px 0 0}
   .meta{display:flex;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;
         color:var(--dim);margin-bottom:20px}
   button{font:600 15px var(--sans);background:var(--allow);color:#06251c;border:0;
@@ -236,10 +254,17 @@ export function consentPage(link: PublishedLink, baseUrl: string): string {
   </div>
 
   ${
-    errors.length
-      ? `<section class="err"><h2>This link cannot run as written</h2><ul>${errors
+    blocking.length
+      ? `<section class="err"><h2>This link cannot run as written</h2><ul>${blocking
           .map((d) => `<li>${esc(d.message)}</li>`)
           .join("")}</ul></section>`
+      : ""
+  }
+  ${
+    unenforced.length
+      ? `<section class="warn"><h2>Not enforced</h2><ul>${unenforced
+          .map((d) => `<li>${esc(d.message)}</li>`)
+          .join("")}</ul><p class="small">Everything else below still applies. You decide whether to run it.</p></section>`
       : ""
   }
 
@@ -259,7 +284,7 @@ export function consentPage(link: PublishedLink, baseUrl: string): string {
       : ""
   }
 
-  <button id="run"${link.runnable && !errors.length ? "" : " disabled"}>Run in my browser</button>
+  <button id="run"${link.runnable && !blocking.length ? "" : " disabled"}>Run in my browser</button>
   <p class="note">Runs with your own sessions. The creator never sees your credentials.</p>
 
   <script>

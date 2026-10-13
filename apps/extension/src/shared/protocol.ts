@@ -19,7 +19,8 @@ export type ContentMessage =
   | { type: "capture:page"; page: PageContext }
   | { type: "resolve:result"; requestId: string; result: ResolveResult }
   | { type: "act:result"; requestId: string; result: ActResult }
-  | { type: "content:ready"; page: PageContext; isTopFrame: boolean };
+  | { type: "content:ready"; page: PageContext; isTopFrame: boolean }
+  | { type: "bridge:run"; linkId: string; api: string };
 
 /* ----------------------------- worker → content --------------------------- */
 
@@ -129,7 +130,9 @@ export type PanelMessage =
   | { type: "panel:runIntent"; intentId: string; params: Record<string, string> }
   | { type: "panel:abort" }
   | { type: "panel:approve"; requestId: string }
-  | { type: "panel:cancelApproval"; requestId: string };
+  | { type: "panel:cancelApproval"; requestId: string }
+  | { type: "panel:submitParams"; params: Record<string, string> }
+  | { type: "panel:cancelRun" };
 
 export interface RecordingState {
   status: "idle" | "recording" | "paused";
@@ -138,19 +141,56 @@ export interface RecordingState {
   apps: string[];
 }
 
-export interface ExecutionState {
-  status: "idle" | "running" | "blocked" | "awaiting_approval" | "done" | "aborted";
-  executionId?: string;
+/** One line in the live timeline. */
+export interface TimelineEntry {
+  at: number;
   stepId?: string;
+  verb?: string;
+  target?: string;
+  verdict: Verdict | "info" | "verified" | "failed";
+  detail?: string;
+  /** The creator's own sentence, when a boundary produced this. */
+  boundary?: string;
+}
+
+export interface ExecutionState {
+  status:
+    | "idle"
+    | "loading"
+    | "awaiting_params"
+    | "running"
+    | "blocked"
+    | "awaiting_approval"
+    | "done"
+    | "aborted"
+    | "failed";
+  executionId?: string;
+  linkId?: string;
+  api?: string;
+  agent?: string;
+  title?: string;
+  goal?: string;
+  stepId?: string;
+  /** Parameters the receiver must supply before anything runs. */
+  pendingParams?: Array<{
+    name: string;
+    type: string;
+    required: boolean;
+    description?: string;
+    recordedExample?: string;
+    enumValues?: string[];
+  }>;
   /** Running tally shown live in the panel. */
   allowed: number;
   blocked: number;
   approvals: number;
+  timeline: TimelineEntry[];
   lastBlock?: {
     reason: string;
     boundary?: string;
     suggestion?: string;
   };
+  error?: string;
 }
 
 export type PanelState = { recording: RecordingState; execution: ExecutionState };

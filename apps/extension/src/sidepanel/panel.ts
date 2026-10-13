@@ -8,7 +8,7 @@
  */
 
 import type { TraceEvent } from "@intentlink/schema";
-import type { PanelMessage, PanelState } from "../shared/protocol.js";
+import type { ExecutionState, PanelMessage, PanelState, TimelineEntry } from "../shared/protocol.js";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
@@ -39,6 +39,14 @@ const els = {
   link: $("link") as HTMLAnchorElement,
   copy: $("copy") as HTMLButtonElement,
   working: $("working"),
+  run: $("run"),
+  runTitle: $("run-title"),
+  runGoal: $("run-goal"),
+  params: $("params") as HTMLFormElement,
+  runActions: $("run-actions"),
+  start: $("start") as HTMLButtonElement,
+  abort: $("abort") as HTMLButtonElement,
+  timeline: $("timeline") as HTMLOListElement,
 };
 
 async function ask(message: PanelMessage): Promise<PanelState | undefined> {
@@ -118,6 +126,97 @@ function renderStep(event: TraceEvent): HTMLLIElement {
   return li;
 }
 
+/**
+ * The parameter form.
+ *
+ * Rebuilt only when the set of parameters changes, so typing into a field is
+ * not wiped by the next poll - the panel re-renders every second.
+ */
+let renderedParamsFor = "";
+
+function renderParams(execution: ExecutionState): void {
+  const pending = execution.pendingParams ?? [];
+  const signature = pending.map((p) => p.name).join(",");
+  if (signature === renderedParamsFor) return;
+  renderedParamsFor = signature;
+
+  els.params.textContent = "";
+  els.params.hidden = pending.length === 0;
+
+  for (const param of pending) {
+    const label = document.createElement("label");
+    label.textContent = param.description || param.name;
+
+    let field: HTMLInputElement | HTMLSelectElement;
+    if (param.enumValues?.length) {
+      const select = document.createElement("select");
+      for (const value of param.enumValues) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        select.appendChild(option);
+      }
+      field = select;
+    } else {
+      const input = document.createElement("input");
+      input.type = param.type === "number" ? "number" : "text";
+      if (param.required) input.required = true;
+      field = input;
+    }
+    field.name = param.name;
+    label.appendChild(field);
+
+    if (param.recordedExample) {
+      const eg = document.createElement("span");
+      eg.className = "eg";
+      eg.textContent = `recorded as ${param.recordedExample}`;
+      label.appendChild(eg);
+    }
+    els.params.appendChild(label);
+  }
+}
+
+function renderTimeline(entries: TimelineEntry[]): void {
+  els.timeline.hidden = entries.length === 0;
+  els.timeline.textContent = "";
+
+  const mark: Record<string, string> = {
+    ALLOW: "+", APPROVAL: "?", DENY: "\u2212", verified: "\u2713", failed: "!", info: "\u00b7",
+  };
+
+  for (const entry of entries.slice(-60)) {
+    const li = document.createElement("li");
+    li.className = entry.verdict;
+
+    const v = document.createElement("span");
+    v.className = "v";
+    v.textContent = mark[entry.verdict] ?? "\u00b7";
+
+    const what = document.createElement("div");
+    what.className = "what";
+    if (entry.verb) {
+      const verb = document.createElement("span");
+      verb.className = "verb";
+      verb.textContent = entry.verb + " ";
+      what.appendChild(verb);
+    }
+    what.appendChild(document.createTextNode(entry.target ?? entry.detail ?? ""));
+    if (entry.target && entry.detail) {
+      what.appendChild(document.createTextNode(` — ${entry.detail}`));
+    }
+    if (entry.boundary) {
+      const b = document.createElement("span");
+      b.className = "boundary";
+      b.textContent = `“${entry.boundary}”`;
+      what.appendChild(b);
+    }
+
+    li.append(v, what);
+    els.timeline.appendChild(li);
+  }
+  els.timeline.scrollTop = els.timeline.scrollHeight;
+}
+
 function render(state: PanelState | undefined): void {
   if (!state) return;
   const { recording, execution } = state;
@@ -153,6 +252,17 @@ function render(state: PanelState | undefined): void {
   els.tBlocked.textContent = String(execution.blocked);
   els.tApprovals.textContent = String(execution.approvals);
 
+  // A run takes over the panel; recording controls would only be in the way.
+  const running = execution.status !== "idle";
+  els.run.hidden = !running;
+  if (running) {
+    els.runTitle.textContent = execution.title ?? "IntentLink";
+    els.runGoal.textContent = execution.error ?? execution.goal ?? "";
+    renderParams(execution);
+    els.runActions.hidden = execution.status !== "awaiting_params";
+  }
+  renderTimeline(execution.timeline ?? []);
+
   const block = execution.lastBlock;
   els.block.hidden = !block;
   if (block) {
@@ -163,6 +273,20 @@ function render(state: PanelState | undefined): void {
     if (block.suggestion) els.blockSuggestion.textContent = block.suggestion;
   }
 }
+
+els.start.addEventListener("click", async () => {
+  const params: Record<string, string> = {};
+  for (const [name, value] of new FormData(els.params).entries()) {
+    params[name] = String(value);
+  }
+  els.start.disabled = true;
+  render(await ask({ type: "panel:submitParams", params } as PanelMessage));
+  els.start.disabled = false;
+});
+
+els.abort.addEventListener("click", async () => {
+  render(await ask({ type: "panel:cancelRun" }));
+});
 
 els.create.addEventListener("click", async () => {
   els.create.disabled = true;

@@ -326,6 +326,10 @@ export function createApp(stores: Stores, secret: string, clock: () => Date = ()
             intent: link.intent,
             policyId: link.policy.id,
             runnable: link.runnable,
+            // Where the receiver's agent reasons. Separate from this service
+            // on purpose - the agent proposes, this one decides - so the
+            // extension has to be told both.
+            agentUrl: process.env.INTENTLINK_AGENT_URL ?? "http://127.0.0.1:8081",
           });
         }
 

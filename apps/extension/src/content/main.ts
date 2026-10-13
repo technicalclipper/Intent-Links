@@ -13,9 +13,14 @@ import { installRecorder, pageContext } from "./capture.js";
 import { compactTree, resolve, CONFIDENCE_FLOOR } from "./resolve.js";
 import { clearHighlight, highlight, performAction } from "./perform.js";
 import { targetHash } from "../shared/hash.js";
+import { installBridge } from "./bridge.js";
 import type { AssertRequest, AssertResult, ContentMessage, WorkerMessage } from "../shared/protocol.js";
 
 const recorder = installRecorder();
+
+// Only the top frame talks to a consent page; an embedded frame posting a run
+// message would be a page trying to start a run it was not given.
+if (window.top === window.self) installBridge();
 
 /** Valid only until the next resolve; never persisted, never sent upstream. */
 let handles = new Map<number, Element>();

@@ -9,6 +9,7 @@
 
 import type { TraceEvent } from "@intentlink/schema";
 import type { Candidate } from "../shared/protocol.js";
+import { IDLE, beginRun, getExecution, runLoop, setExecution } from "./executor.js";
 import type {
   ContentMessage,
   ExecutionState,
@@ -21,16 +22,8 @@ import type {
 type FramedCandidate = Candidate & { frameId: number };
 
 const KEY_RECORDING = "intentlink:recording";
-const KEY_EXECUTION = "intentlink:execution";
 
 const IDLE_RECORDING: RecordingState = { status: "idle", events: [], apps: [] };
-const IDLE_EXECUTION: ExecutionState = {
-  status: "idle",
-  allowed: 0,
-  blocked: 0,
-  approvals: 0,
-};
-
 /* ------------------------------ state access ------------------------------ */
 
 async function getRecording(): Promise<RecordingState> {
@@ -40,15 +33,6 @@ async function getRecording(): Promise<RecordingState> {
 
 async function setRecording(state: RecordingState): Promise<void> {
   await chrome.storage.local.set({ [KEY_RECORDING]: state });
-}
-
-async function getExecution(): Promise<ExecutionState> {
-  const stored = await chrome.storage.local.get(KEY_EXECUTION);
-  return (stored[KEY_EXECUTION] as ExecutionState | undefined) ?? IDLE_EXECUTION;
-}
-
-async function setExecution(state: ExecutionState): Promise<void> {
-  await chrome.storage.local.set({ [KEY_EXECUTION]: state });
 }
 
 /**
@@ -270,7 +254,27 @@ chrome.runtime.onMessage.addListener((message: ContentMessage | PanelMessage, _s
         return respond(await publishRecording(message.boundaries));
 
       case "panel:abort":
-        await setExecution({ ...IDLE_EXECUTION, status: "aborted" });
+      case "panel:cancelRun":
+        await setExecution({ ...(await getExecution()), status: "aborted" });
+        return respond(await panelState());
+
+      case "bridge:run": {
+        // Opening the panel here matters: the receiver clicked Run on a web
+        // page and everything that follows - parameters, the live timeline, a
+        // block - happens in the panel, which they may never have opened.
+        const state = await beginRun(message.linkId, message.api);
+        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (tab?.windowId !== undefined) {
+          await chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
+        }
+        return respond(state);
+      }
+
+      case "panel:submitParams":
+        // Deliberately not awaited: the loop runs for as long as the workflow
+        // takes, and the panel needs its answer now so it can start showing
+        // the timeline.
+        void runLoop(message.params);
         return respond(await panelState());
 
       default:

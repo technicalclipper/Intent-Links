@@ -109,24 +109,38 @@ cmd_loop() {
 
 cmd_serve() {
   need_key
+  [ -d apps/agent/.venv ] || die "No agent venv. See apps/agent/README.md"
+
   local secret; secret=$(openssl rand -hex 32)
-  bold "API on http://127.0.0.1:8080"
+  bold "Starting both services"
   cat <<EOF
 
-  This is what the extension publishes to, and where consent pages are served.
-  Leave it running, then:
+  policy + links : http://127.0.0.1:8080   (the authority, and consent pages)
+  agent          : http://127.0.0.1:8081   (reasoning; holds no authority)
 
-    1. ./scripts/try-it.sh extension     (load the extension, once)
-    2. Record something in the side panel
-    3. Type your boundaries in plain English
-    4. Press Create IntentLink  ->  a link appears
-    5. Open the link
+  Then:
+    1. ./scripts/try-it.sh extension    (load it, once)
+    2. Record something, type boundaries, Create IntentLink
+    3. Open the link, press Run in my browser
+    4. Fill the parameters in the side panel, press Run it
 
-  Ctrl-C to stop.
+  Ctrl-C stops both.
 
 EOF
-  INTENTLINK_TOKEN_SECRET="$secret" PORT=8080 \
-    node --env-file-if-exists="$ROOT/.env" apps/api/dist/server.js
+
+  INTENTLINK_TOKEN_SECRET="$secret" \
+  INTENTLINK_POLICY_URL="http://127.0.0.1:8080" \
+    apps/agent/.venv/bin/python -m uvicorn intentlink_agent.service:app \
+      --app-dir apps/agent --port 8081 --log-level warning &
+  AGENT_PID=$!
+
+  # Both die together: a half-running system is worse than a stopped one,
+  # because the failure shows up as an unexplained block mid-demo.
+  trap 'kill "${AGENT_PID:-}" 2>/dev/null || true' EXIT INT TERM
+
+  INTENTLINK_TOKEN_SECRET="$secret" \
+  INTENTLINK_AGENT_URL="http://127.0.0.1:8081" \
+  PORT=8080 node --env-file-if-exists="$ROOT/.env" apps/api/dist/server.js
 }
 
 cmd_extension() {

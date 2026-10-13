@@ -42,46 +42,68 @@ CURRENT_STEP_KEY = "intentlink:current_step"
 # policy's scope and data-exclusion rules apply to reads as well as writes.
 GATED_TOOLS = {"perform_action", "read_page"}
 
+# Only this one carries out the step. Observation tools are gated too - scope
+# and data rules apply to looking - but they propose their own verb, because
+# reading the page is not the step's action and must not borrow its
+# permission. Applying the step's verb to read_page had it proposed as
+# set_theme, so an observation was being authorized by the rule meant for the
+# change itself.
+ACTING_TOOLS = {"perform_action"}
+
 
 def _action_from(tool_args: dict[str, Any], ctx: Context, tool_name: str) -> ProposedAction:
     state = ctx.state
     # Observation tools carry no verb of their own. Falling through with an
     # empty one made every read propose verb="" - which matched no allow rule,
     # was denied by default, and left the agent unable to see the page at all.
-    verb = str(tool_args.get("verb") or tool_name)
     """
     Which step this is, according to the EXTENSION rather than the model.
 
     The extension drives the loop, so it knows which step it is on; the model
-    only remembers what it was told. Compiled step ids are descriptive
-    (set_appearance_theme), and a model that answers "s1" - or the step's
-    title - makes the argument lookup below miss, fall back to values it
-    invented, and get the action refused for supplying something that came
-    from neither the parameters nor the recording.
+    only remembers what it was told.
     """
     step_id = str(state.get(CURRENT_STEP_KEY) or tool_args.get("step_id") or "")
-
-
-    """
-    Policy rules match on named arguments, and the compiled step already says
-    what those are. Letting the model restate them means a rule like
-      allow set_theme where theme matches light
-    silently stops matching the moment it omits the argument or calls it
-    something else - and the action falls through to deny-by-default with a
-    message about the verb not being permitted, which is not the problem.
-
-    So the authoritative values come from the intent, exactly as resolution
-    hints come from the trace. Anything the model supplies is a fallback for
-    steps the compiler did not describe.
-    """
     declared = (state.get(STEP_ARGS_KEY) or {}).get(step_id) or {}
-    args: dict[str, Any] = {**(tool_args.get("args") or {}), **declared}
+
+    """
+    Verb, object and arguments come from the COMPILED STEP.
+
+    Policy rules match on all three, and the model restating them is a
+    transcription step that can only lose information. It has produced
+    set_appearance_theme where the policy said set_theme, dropped an argument
+    a constraint depended on, and named a step that does not exist - each one
+    surfacing as "not among the actions this IntentLink permits" for an action
+    that was permitted all along.
+
+    The model's remaining job is the part only it can do: judging WHICH
+    element on the page satisfies the step, and whether to proceed. What the
+    action IS was settled at compile time.
+    """
+    acting = tool_name in ACTING_TOOLS
+
+    # Order matters: the compiled step is authoritative, the model is the
+    # fallback for an action the compiler never described, and the tool name
+    # is the last resort for tools that carry no verb at all. Collapsing
+    # straight to the tool name made every action propose "perform_action".
+    verb = str(
+        (declared.get("verb") if acting else None)
+        or (tool_args.get("verb") if acting else None)
+        or tool_name
+    )
+    obj = (declared.get("object") if acting else None) or (
+        tool_args.get("object") if acting else None
+    )
+    args: dict[str, Any] = (
+        {**(tool_args.get("args") or {}), **(declared.get("args") or {})}
+        if acting
+        else {}
+    )
 
     return ProposedAction(
         execution_id=str(state.get(EXECUTION_KEY, "")),
         step_id=step_id,
         verb=verb,
-        object=tool_args.get("object"),
+        object=obj,
         args=args,
         origin=tool_args.get("origin"),
         path=tool_args.get("path"),

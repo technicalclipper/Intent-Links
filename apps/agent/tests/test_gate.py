@@ -284,3 +284,66 @@ async def test_the_token_is_single_use_and_target_bound(service):
         target_hash="a" * 64,
     )
     assert replay is False and reason == "already_spent"
+
+
+@pytest.mark.asyncio
+async def test_the_step_decides_the_verb_and_args_not_the_model(service):
+    """The compiled step is authoritative for WHAT the action is.
+
+    Three separate runs failed because the model restated something already
+    known and got it wrong: a step id of "s1" against a compiled id, a renamed
+    or dropped argument, and a verb of set_appearance_theme where the policy
+    said set_theme. Each surfaced as "not among the actions this IntentLink
+    permits" for an action that was permitted all along.
+    """
+    gate = make_policy_gate(PolicyClient(service["base"]))
+    ctx = FakeContext(
+        _state(
+            service,
+            **{
+                "intentlink:current_step": "create_the_channel",
+                "intentlink:step_args": {
+                    "create_the_channel": {
+                        "verb": "create_channel",
+                        "object": "channel",
+                        "args": {"name": "inc-2026-10-13"},
+                    }
+                },
+            },
+        )
+    )
+
+    # The model gets all three wrong, and it must not matter.
+    result = await gate(
+        FakeTool("perform_action"),
+        _args(step_id="s1", verb="create_slack_channel", object=None, args={"title": "whatever"}),
+        ctx,
+    )
+
+    assert result is None, "the step's own verb and args must be used"
+    assert ctx.state[TOKEN_KEY]
+
+
+@pytest.mark.asyncio
+async def test_observation_does_not_borrow_the_step_s_permission(service):
+    """read_page proposes read_page, never the step's verb.
+
+    Applying the declared verb to every gated tool had observations proposed
+    as set_theme - authorized by the rule meant for the change itself.
+    """
+    gate = make_policy_gate(PolicyClient(service["base"]))
+    ctx = FakeContext(
+        _state(
+            service,
+            **{
+                "intentlink:current_step": "s1",
+                "intentlink:step_args": {
+                    "s1": {"verb": "create_channel", "object": "channel", "args": {}}
+                },
+            },
+        )
+    )
+
+    result = await gate(FakeTool("read_page"), {"step_id": "s1", "reason": "look"}, ctx)
+    # Permitted on its own merits by the fixture's implicit observation rule.
+    assert result is None

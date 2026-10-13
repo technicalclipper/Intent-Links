@@ -133,22 +133,33 @@ def _allowed_values(intent: dict[str, Any], params: dict[str, str]) -> list[Any]
     return values
 
 
-def _step_args(intent: dict[str, Any], params: dict[str, str]) -> dict[str, dict[str, Any]]:
-    """Each step's arguments, with parameters filled in.
+def _step_actions(intent: dict[str, Any], params: dict[str, str]) -> dict[str, dict[str, Any]]:
+    """Each step's verb, object and arguments, with parameters filled in.
 
-    Computed once here rather than reconstructed per turn by the model, so a
-    policy rule that matches on an argument name sees the value the compiler
-    intended rather than whatever the model remembered to repeat.
+    The compiled step already states all three. Every time the model has been
+    asked to restate one of them it has eventually got it wrong - a step id of
+    "s1" against a compiled id of set_appearance_theme, an argument renamed or
+    dropped, a verb of set_appearance_theme where the policy says set_theme -
+    and each mismatch surfaced as a policy refusal that looked like a missing
+    permission rather than a transcription error.
+
+    So the loop supplies the step and the facts come from here. The model's
+    job is judgment: WHICH element on the page, and whether to proceed at all.
     """
     resolved: dict[str, dict[str, Any]] = {}
     for step in intent.get("steps", []):
+        action = step.get("action", {})
         values: dict[str, Any] = {}
-        for name, arg in (step.get("action", {}).get("args") or {}).items():
+        for name, arg in (action.get("args") or {}).items():
             if "literal" in arg:
                 values[name] = arg["literal"]
             elif "param" in arg and arg["param"] in params:
                 values[name] = params[arg["param"]]
-        resolved[step["id"]] = values
+        resolved[step["id"]] = {
+            "verb": action.get("verb"),
+            "object": action.get("object"),
+            "args": values,
+        }
     return resolved
 
 
@@ -175,7 +186,7 @@ async def start(req: StartRequest) -> StartResponse:
             EXECUTION_KEY: execution_id,
             RECEIVER_KEY: req.receiver,
             ALLOWED_VALUES_KEY: _allowed_values(req.intent, req.params),
-            STEP_ARGS_KEY: _step_args(req.intent, req.params),
+            STEP_ARGS_KEY: _step_actions(req.intent, req.params),
         },
     )
 

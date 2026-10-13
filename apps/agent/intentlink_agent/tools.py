@@ -75,6 +75,15 @@ def perform_action(
     Returns:
         An instruction for the extension to carry out, carrying its authorization.
     """
+    # The gate authorized the step's OWN verb; the extension redeems against
+    # it, and the token is bound to it. Sending the model's spelling here
+    # would fail the redeem even though the action was permitted.
+    declared = (ctx.state.get("intentlink:step_args") or {}).get(
+        str(ctx.state.get("intentlink:current_step") or step_id)
+    ) or {}
+    verb = str(declared.get("verb") or verb)
+    args = {**args, **(declared.get("args") or {})}
+
     token = ctx.state.get(TOKEN_KEY)
     if not token:
         # Reaching here without a token means the gate did not run, which would

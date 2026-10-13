@@ -247,6 +247,9 @@ test("values must come from a parameter or the recording", () => {
   );
   assert.equal(invented.outcome, "DENY");
   assert.match(invented.reason, /neither your parameters nor the recording/);
+  // The receiver can only act on this if it names the value and the alternatives.
+  assert.match(invented.reason, /something-the-model-made-up/);
+  assert.match(invented.suggestion ?? "", /inc-2026-10-05-payments/);
 });
 
 /* --------------------------------- dry run -------------------------------- */

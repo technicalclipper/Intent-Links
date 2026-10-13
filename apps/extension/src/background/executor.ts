@@ -249,6 +249,8 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
             execution_id: executionId,
             observation,
             last_result: lastResult,
+            // We know which step this is; the agent only remembers being told.
+            step_id: step?.id,
           }),
         }),
         "asking the agent what to do next",

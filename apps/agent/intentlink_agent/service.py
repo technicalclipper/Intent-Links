@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from .agent import build_agent, render_context
 from .gate import (
     ALLOWED_VALUES_KEY,
+    CURRENT_STEP_KEY,
     EXECUTION_KEY,
     POLICY_KEY,
     RECEIVER_KEY,
@@ -102,6 +103,10 @@ class TurnRequest(BaseModel):
     execution_id: str
     observation: dict[str, Any] = Field(default_factory=dict)
     last_result: dict[str, Any] | None = None
+    # The extension drives the loop and knows which step it is on. Without
+    # this the gate has only the model's word for it, and a mistaken step id
+    # silently sends the wrong arguments to the policy engine.
+    step_id: str | None = None
 
 
 class TurnResponse(BaseModel):
@@ -207,11 +212,21 @@ async def turn(req: TurnRequest) -> TurnResponse:
         user_id=run["receiver"],
         session_id=req.execution_id,
         new_message=types.Content(role="user", parts=[types.Part(text=brief)]),
-        state_delta={"intentlink:observation": req.observation},
+        state_delta={
+            "intentlink:observation": req.observation,
+            **({CURRENT_STEP_KEY: req.step_id} if req.step_id else {}),
+        },
     )
 
     narration: list[str] = []
     response = TurnResponse(status="done")
+    # The extension performs ONE thing per turn, so the first decisive result
+    # is the answer. Letting later tool calls overwrite it threw away
+    # authorized instructions: the agent would call perform_action, get a
+    # token, then call something else in the same turn - and the browser was
+    # handed the afterthought instead of the action. The gate had allowed it,
+    # the audit recorded it, and nothing happened on the page.
+    decided = False
 
     async for event in result:
         for part in (event.content.parts if event.content else []) or []:
@@ -219,10 +234,11 @@ async def turn(req: TurnRequest) -> TurnResponse:
                 narration.append(part.text)
 
             call = getattr(part, "function_response", None)
-            if call is None:
+            if call is None or decided:
                 continue
             payload = _as_dict(call.response)
 
+            decided = True
             if payload.get("intentlink_blocked"):
                 response = TurnResponse(
                     status="awaiting_approval" if payload.get("awaiting_approval") else "blocked",
@@ -251,6 +267,10 @@ async def turn(req: TurnRequest) -> TurnResponse:
                         "attempted": payload.get("attempted"),
                     },
                 )
+            else:
+                # read_page and anything unrecognised: not an answer for the
+                # browser, so the turn stays open for a real one.
+                decided = False
 
     response.narration = " ".join(n.strip() for n in narration if n.strip())[:2000]
     return response

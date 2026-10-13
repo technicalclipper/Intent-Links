@@ -36,6 +36,7 @@ POLICY_KEY = "intentlink:policy_id"
 RECEIVER_KEY = "intentlink:receiver"
 ALLOWED_VALUES_KEY = "intentlink:allowed_values"
 STEP_ARGS_KEY = "intentlink:step_args"
+CURRENT_STEP_KEY = "intentlink:current_step"
 
 # Tools that observe rather than act. They still pass through the gate so the
 # policy's scope and data-exclusion rules apply to reads as well as writes.
@@ -48,7 +49,18 @@ def _action_from(tool_args: dict[str, Any], ctx: Context, tool_name: str) -> Pro
     # empty one made every read propose verb="" - which matched no allow rule,
     # was denied by default, and left the agent unable to see the page at all.
     verb = str(tool_args.get("verb") or tool_name)
-    step_id = str(tool_args.get("step_id", ""))
+    """
+    Which step this is, according to the EXTENSION rather than the model.
+
+    The extension drives the loop, so it knows which step it is on; the model
+    only remembers what it was told. Compiled step ids are descriptive
+    (set_appearance_theme), and a model that answers "s1" - or the step's
+    title - makes the argument lookup below miss, fall back to values it
+    invented, and get the action refused for supplying something that came
+    from neither the parameters nor the recording.
+    """
+    step_id = str(state.get(CURRENT_STEP_KEY) or tool_args.get("step_id") or "")
+
 
     """
     Policy rules match on named arguments, and the compiled step already says

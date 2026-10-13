@@ -167,9 +167,18 @@ export function evaluate(
     for (const [key, value] of Object.entries(args)) {
       if (typeof value === "boolean") continue;
       if (!permitted.has(String(value))) {
+        // Naming the offending value matters: this fires on the receiver's own
+        // data, and "something was wrong somewhere" is not something they can
+        // act on. The permitted set is theirs too - their parameters and what
+        // was demonstrated - so showing it leaks nothing they do not have.
         return deny(
-          `The agent tried to supply a value for "${key}" that came from neither your parameters nor the recording.`,
-          { suggestion: "Values must originate from a declared parameter or the original demonstration." },
+          `The agent tried to set "${key}" to ${JSON.stringify(String(value))}, which came from neither your parameters nor the recording.`,
+          {
+            suggestion:
+              ctx.allowedValues!.length > 0
+                ? `Permitted values here: ${ctx.allowedValues!.map((v) => JSON.stringify(String(v))).join(", ")}.`
+                : "Values must originate from a declared parameter or the original demonstration.",
+          },
         );
       }
     }

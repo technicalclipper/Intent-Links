@@ -242,6 +242,33 @@ export function evaluate(
   /* 9. Allow, or deny by default ------------------------------------------- */
 
   if (allows.length === 0) {
+    /*
+     * Distinguish "never permitted" from "permitted, but not like this".
+     *
+     * A rule such as `allow set_theme where theme matches light` stops
+     * matching the moment the value is wrong or the argument is missing, and
+     * the action then falls through to here. Reporting that as "set_theme is
+     * not among the actions this IntentLink permits" sent a real receiver
+     * looking for a missing permission that was there all along.
+     */
+    const sameVerb = policy.allowed.filter((r) => globMatch(r.verb, action.verb));
+    if (sameVerb.length) {
+      const rule = mostSpecific(sameVerb)!;
+      const expected = rule.args
+        .map((c) => `${c.arg} ${c.op.replace(/_/g, " ")} ${JSON.stringify(c.value)}`)
+        .join(" and ");
+      return deny(
+        rule.sourceText
+          ? `${action.verb} is permitted, but not with these values. Your boundary says: "${rule.sourceText}"`
+          : `${action.verb} is permitted, but not with these values.`,
+        {
+          ruleId: rule.id,
+          ...(rule.sourceText ? { sourceText: rule.sourceText } : {}),
+          ...(expected ? { suggestion: `It requires ${expected}.` } : {}),
+        },
+      );
+    }
+
     return deny(
       `${action.verb} is not among the actions this IntentLink permits.`,
       { suggestion: "Nothing is allowed unless the creator allowed it." },

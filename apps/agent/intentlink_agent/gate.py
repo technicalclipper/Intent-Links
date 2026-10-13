@@ -35,6 +35,7 @@ EXECUTION_KEY = "intentlink:execution_id"
 POLICY_KEY = "intentlink:policy_id"
 RECEIVER_KEY = "intentlink:receiver"
 ALLOWED_VALUES_KEY = "intentlink:allowed_values"
+STEP_ARGS_KEY = "intentlink:step_args"
 
 # Tools that observe rather than act. They still pass through the gate so the
 # policy's scope and data-exclusion rules apply to reads as well as writes.
@@ -47,12 +48,29 @@ def _action_from(tool_args: dict[str, Any], ctx: Context, tool_name: str) -> Pro
     # empty one made every read propose verb="" - which matched no allow rule,
     # was denied by default, and left the agent unable to see the page at all.
     verb = str(tool_args.get("verb") or tool_name)
+    step_id = str(tool_args.get("step_id", ""))
+
+    """
+    Policy rules match on named arguments, and the compiled step already says
+    what those are. Letting the model restate them means a rule like
+      allow set_theme where theme matches light
+    silently stops matching the moment it omits the argument or calls it
+    something else - and the action falls through to deny-by-default with a
+    message about the verb not being permitted, which is not the problem.
+
+    So the authoritative values come from the intent, exactly as resolution
+    hints come from the trace. Anything the model supplies is a fallback for
+    steps the compiler did not describe.
+    """
+    declared = (state.get(STEP_ARGS_KEY) or {}).get(step_id) or {}
+    args: dict[str, Any] = {**(tool_args.get("args") or {}), **declared}
+
     return ProposedAction(
         execution_id=str(state.get(EXECUTION_KEY, "")),
-        step_id=str(tool_args.get("step_id", "")),
+        step_id=step_id,
         verb=verb,
         object=tool_args.get("object"),
-        args=tool_args.get("args") or {},
+        args=args,
         origin=tool_args.get("origin"),
         path=tool_args.get("path"),
         # Only a well-formed digest is forwarded. A model-supplied hash is a

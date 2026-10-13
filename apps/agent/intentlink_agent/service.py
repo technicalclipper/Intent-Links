@@ -29,6 +29,7 @@ from .gate import (
     EXECUTION_KEY,
     POLICY_KEY,
     RECEIVER_KEY,
+    STEP_ARGS_KEY,
 )
 from .policy_client import PolicyClient
 
@@ -127,6 +128,25 @@ def _allowed_values(intent: dict[str, Any], params: dict[str, str]) -> list[Any]
     return values
 
 
+def _step_args(intent: dict[str, Any], params: dict[str, str]) -> dict[str, dict[str, Any]]:
+    """Each step's arguments, with parameters filled in.
+
+    Computed once here rather than reconstructed per turn by the model, so a
+    policy rule that matches on an argument name sees the value the compiler
+    intended rather than whatever the model remembered to repeat.
+    """
+    resolved: dict[str, dict[str, Any]] = {}
+    for step in intent.get("steps", []):
+        values: dict[str, Any] = {}
+        for name, arg in (step.get("action", {}).get("args") or {}).items():
+            if "literal" in arg:
+                values[name] = arg["literal"]
+            elif "param" in arg and arg["param"] in params:
+                values[name] = params[arg["param"]]
+        resolved[step["id"]] = values
+    return resolved
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, bool]:
     return {"ok": True}
@@ -150,6 +170,7 @@ async def start(req: StartRequest) -> StartResponse:
             EXECUTION_KEY: execution_id,
             RECEIVER_KEY: req.receiver,
             ALLOWED_VALUES_KEY: _allowed_values(req.intent, req.params),
+            STEP_ARGS_KEY: _step_args(req.intent, req.params),
         },
     )
 

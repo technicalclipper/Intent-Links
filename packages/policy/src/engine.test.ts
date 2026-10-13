@@ -353,3 +353,33 @@ test("a genuinely broken pattern is recorded, not just silently inert", () => {
   // creator has to be told rather than left believing they are protected.
   assert.ok(uncompilablePatterns().includes("(["));
 });
+
+test("a failed argument constraint says so, instead of blaming the verb", () => {
+  // A real receiver was told "set_theme is not among the actions this
+  // IntentLink permits" when set_theme was permitted all along - the rule
+  // simply required a value the action did not carry. They went looking for a
+  // missing permission that existed.
+  const p = policyWith({
+    denied: [],
+    allowed: [
+      {
+        id: "a1",
+        verb: "set_theme",
+        args: [{ arg: "theme", op: "matches", value: "[Ll]ight" }],
+        sourceText: "only change the mode to light mode",
+        boundSteps: ["s1"],
+      },
+    ],
+  });
+
+  const wrongValue = evaluate(p, act({ verb: "set_theme", object: undefined, args: { theme: "Dark" } }), ctx());
+  assert.equal(wrongValue.outcome, "DENY");
+  assert.match(wrongValue.reason, /permitted, but not with these values/);
+  assert.match(wrongValue.reason, /only change the mode to light mode/);
+  assert.match(wrongValue.suggestion ?? "", /theme matches/);
+
+  // A non-destructive verb, so the irreversible-action net does not answer
+  // first; this is the genuinely-never-permitted path.
+  const neverAllowed = evaluate(p, act({ verb: "create_playlist", object: undefined }), ctx());
+  assert.match(neverAllowed.reason, /not among the actions/);
+});

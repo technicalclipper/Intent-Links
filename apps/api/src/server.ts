@@ -326,6 +326,7 @@ export function createApp(stores: Stores, secret: string, clock: () => Date = ()
             intent: link.intent,
             policyId: link.policy.id,
             runnable: link.runnable,
+            startUrl: link.startUrl,
             // Where the receiver's agent reasons. Separate from this service
             // on purpose - the agent proposes, this one decides - so the
             // extension has to be told both.

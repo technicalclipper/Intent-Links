@@ -30,6 +30,15 @@ import { randomUUID } from "node:crypto";
 
 export interface PublishedLink {
   id: string;
+  /**
+   * Where the workflow begins, taken from the recording.
+   *
+   * Without it the receiver's extension runs against whatever tab happens to
+   * be focused - which is the CONSENT PAGE, since that is what they just
+   * clicked Run on. The agent then finds nothing resembling the workflow,
+   * and the run is against the wrong document entirely.
+   */
+  startUrl?: string;
   intent: IntentLink;
   policy: Policy;
   bindings: Binding[];
@@ -103,8 +112,11 @@ export async function publish(
     status: "published",
   });
 
+  const first = trace.events.find((e) => e.page.origin);
+
   return {
     id: linkId(),
+    ...(first ? { startUrl: `${first.page.origin}${first.page.path}` } : {}),
     intent: published,
     policy,
     bindings: compiled.bindings,

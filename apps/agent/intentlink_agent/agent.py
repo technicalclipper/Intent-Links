@@ -81,6 +81,17 @@ After a step that changes something, call assert_outcome to confirm the page
 actually reflects it. A tool returning without error is not evidence that
 anything happened.
 
+NEVER verify a step you have not performed. Checking whether a setting already
+has the value you were asked to set is not evidence of your work - it may have
+been that way all along - and reporting it as success tells the receiver their
+task is done when nothing was touched. If a step has not been performed,
+perform it. If you cannot, say that.
+
+Equally: never report the workflow complete when you have performed nothing.
+"There was nothing to do" is almost always wrong; the far likelier
+explanations are that you are on the wrong page, or that the control is one
+you have not found yet. Say which.
+
 FINISHING
 
 When every step is done, blocked, or impossible, summarise what was achieved,

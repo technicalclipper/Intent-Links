@@ -91,6 +91,7 @@ async function note(entry: Omit<TimelineEntry, "at">): Promise<void> {
 
 interface LinkResponse {
   id: string;
+  startUrl?: string;
   intent: {
     title: string;
     goal: string;
@@ -173,14 +174,10 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
     return;
   }
 
-  const tab = await activeTab();
-  if (!tab?.id) {
-    await patch({ status: "failed", error: "no active tab to run in" });
-    return;
-  }
 
   let link: LinkResponse;
   let executionId: string;
+  let tab: chrome.tabs.Tab | undefined;
   try {
     // Fetched again rather than trusted from before: the steps and their hints
     // are what we resolve against.
@@ -188,6 +185,9 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
       await fetch(`${state.api}/v1/links/${state.linkId}`),
       "loading the IntentLink",
     );
+
+    tab = await targetTab(link.startUrl);
+    if (!tab?.id) throw new Error("could not open the page this workflow runs on");
 
     const started = await readJson<{ execution_id: string }>(
       await fetch(`${state.agent}/v1/run/start`, {
@@ -212,16 +212,32 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
   }
 
   await patch({ status: "running", executionId, pendingParams: [] });
+  const tabId = tab.id!;
 
   let lastResult: Record<string, unknown> | null = null;
   let stepIndex = 0;
+
+  /**
+   * Steps that genuinely happened - an action was authorized, redeemed and
+   * performed. Nothing else counts as done.
+   *
+   * This exists because an agent once reported a workflow "successfully
+   * completed and verified" having never called perform_action at all. It
+   * went straight to assert_outcome, the assertion ran against a page where
+   * nothing had changed, and the receiver was told the work was finished.
+   *
+   * A false success is the worst failure this system can produce: a block is
+   * visible and recoverable, but a confident lie is neither. So completion is
+   * tracked here, in code, rather than taken from the agent's word for it.
+   */
+  const performed = new Set<string>();
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const current = await getExecution();
     if (current.status === "aborted") return;
 
     const step = link.intent.steps[Math.min(stepIndex, link.intent.steps.length - 1)];
-    const observation = await observe(tab.id, step?.hints ?? []);
+    const observation = await observe(tabId, step?.hints ?? []);
 
     let reply: TurnResponse;
     try {
@@ -246,7 +262,28 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
     }
 
     if (reply.status === "done" || reply.status === "failed") {
-      await note({ verdict: "info", detail: reply.narration || "Finished." });
+      /*
+       * "Done" is a claim, and it is checked. An agent that believes it has
+       * finished without having performed anything is describing a run that
+       * did not happen, and saying so is far better than letting the receiver
+       * walk away thinking their settings changed.
+       */
+      const required = link.intent.steps.filter((st) => !performed.has(st.id));
+      if (performed.size === 0 && link.intent.steps.length > 0) {
+        await note({
+          verdict: "failed",
+          detail:
+            "The agent reported success without performing any step. Nothing was changed.",
+        });
+        await patch({ status: "failed", error: "Nothing was done. No step was performed." });
+        return;
+      }
+      await note({
+        verdict: required.length ? "failed" : "info",
+        detail: required.length
+          ? `Finished with ${required.length} step(s) not performed: ${required.map((st) => st.title).join(", ")}`
+          : reply.narration || "Finished.",
+      });
       await patch({ status: "done" });
       return;
     }
@@ -281,20 +318,41 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
     }
 
     if (reply.assertion) {
-      const passed = await verify(tab.id, observation.frameId ?? 0, reply.assertion);
-      await note({
-        verdict: passed ? "verified" : "failed",
-        stepId: reply.assertion.stepId,
-        detail: reply.assertion.describe,
-      });
-      lastResult = { stepId: reply.assertion.stepId, status: passed ? "done" : "failed" };
-      stepIndex++;
+      /*
+       * An assertion about a step that never ran cannot pass. Checking the
+       * page would be beside the point: on a page where nothing was done, an
+       * "is it already set?" check can easily be true for reasons that have
+       * nothing to do with us.
+       */
+      const stepId = reply.assertion.stepId;
+      const ran = performed.has(stepId);
+      const passed = ran && (await verify(tabId, observation.frameId ?? 0, reply.assertion));
+      if (!ran) {
+        await note({
+          verdict: "failed",
+          stepId,
+          detail: `cannot verify “${reply.assertion.describe}”: that step was never performed`,
+        });
+      }
+      if (ran) {
+        await note({
+          verdict: passed ? "verified" : "failed",
+          stepId,
+          detail: reply.assertion.describe,
+        });
+      }
+      lastResult = {
+        stepId,
+        status: passed ? "done" : "failed",
+        ...(ran ? {} : { reason: "this step has not been performed yet; do it before verifying" }),
+      };
+      if (passed) stepIndex++;
       continue;
     }
 
     if (reply.status === "action" && reply.instruction && reply.token) {
       const result = await authorizeAndAct(
-        tab.id,
+        tabId,
         state.api,
         executionId,
         reply.instruction,
@@ -303,6 +361,7 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
       );
       lastResult = { stepId: reply.instruction.stepId, ...result };
       if (result.status === "done") {
+        performed.add(reply.instruction.stepId);
         const tally = await getExecution();
         await patch({ allowed: tally.allowed + 1 });
         stepIndex++;
@@ -321,9 +380,59 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
 
 /* -------------------------------- the steps ------------------------------- */
 
-async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  return tab;
+/**
+ * The tab the workflow should run in.
+ *
+ * NOT the focused tab. The receiver clicked Run on the consent page, so that
+ * is what is in front of them - and running there drove the wrong document
+ * entirely: resolution found nothing resembling the workflow, and the agent
+ * concluded it had nothing to do. The recording knows where the work happens,
+ * so we go there.
+ *
+ * An already-open tab on that origin is reused rather than duplicated;
+ * someone who has YouTube open does not want a second copy of it.
+ */
+async function targetTab(startUrl: string | undefined): Promise<chrome.tabs.Tab | undefined> {
+  if (!startUrl) {
+    const [focused] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return focused;
+  }
+
+  const target = new URL(startUrl);
+  const open = await chrome.tabs.query({});
+  const existing = open.find((t) => {
+    try {
+      return t.url ? new URL(t.url).origin === target.origin : false;
+    } catch {
+      return false;
+    }
+  });
+
+  if (existing?.id !== undefined) {
+    // Bring it to the right page and to the front, so the receiver can watch.
+    await chrome.tabs.update(existing.id, { url: startUrl, active: true });
+    await waitForLoad(existing.id);
+    return chrome.tabs.get(existing.id);
+  }
+
+  const created = await chrome.tabs.create({ url: startUrl, active: true });
+  if (created.id !== undefined) await waitForLoad(created.id);
+  return created;
+}
+
+/** A content script cannot resolve anything until the document exists. */
+async function waitForLoad(tabId: number, timeoutMs = 20_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+    if (tab?.status === "complete") {
+      // The content script is injected at document_start but still needs a
+      // moment to install its listeners before it will answer.
+      await new Promise((r) => setTimeout(r, 400));
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }
 
 /** Ask every frame to resolve, and keep the best answer plus its frame. */

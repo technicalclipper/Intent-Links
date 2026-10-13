@@ -118,6 +118,10 @@ def assert_outcome(
     returned without error. A tool call completing is the single most common
     way browser automation lies about having worked.
 
+    Only valid for a step you have ALREADY performed. Verifying an untouched
+    step proves nothing - the value may have been there all along - and the
+    extension rejects such an assertion rather than counting it as success.
+
     Args:
         step_id: The step whose outcome is being verified.
         describe: What is being checked, in plain language.

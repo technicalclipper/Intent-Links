@@ -232,6 +232,19 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
    */
   const performed = new Set<string>();
 
+  /**
+   * Consecutive failures of the same step, to stop a loop that is going
+   * nowhere.
+   *
+   * A real run produced the same failure ten times: the agent proposed the
+   * same action, it failed for the same reason, and nothing in the loop
+   * noticed it was not progressing. Repeating an action that just failed
+   * identically is not persistence, it is a spin - and on a page where some
+   * of those attempts might succeed, it is worse than a spin.
+   */
+  let repeated = 0;
+  let lastFailure = "";
+
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const current = await getExecution();
     if (current.status === "aborted") return;
@@ -353,17 +366,49 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
     }
 
     if (reply.status === "action" && reply.instruction && reply.token) {
+      /*
+       * Redeem against the hash WE computed for that handle, not the one
+       * relayed back to us. A token bound to one value and redeemed against
+       * another is refused as wrong_target - on an action the engine had
+       * just permitted.
+       */
+      const chosen = observation.candidates.find((c) => c.handle === reply.instruction!.handle);
+      const instruction = {
+        ...reply.instruction,
+        ...(chosen?.targetHash ? { targetHash: chosen.targetHash } : {}),
+      };
+
       const result = await authorizeAndAct(
         tabId,
         state.api,
         executionId,
-        reply.instruction,
+        instruction,
         reply.token,
-        observation.frameId ?? 0,
+        chosen?.frameId ?? observation.frameId ?? 0,
       );
-      lastResult = { stepId: reply.instruction.stepId, ...result };
+      lastResult = { stepId: instruction.stepId, ...result };
+      const signature = `${instruction.stepId}:${result.reason ?? ""}`;
+      if (result.status !== "done" && signature === lastFailure) {
+        repeated += 1;
+        if (repeated >= 3) {
+          await note({
+            verdict: "failed",
+            stepId: instruction.stepId,
+            detail: `giving up after ${repeated + 1} identical failures: ${result.reason ?? "unknown"}`,
+          });
+          await patch({
+            status: "failed",
+            error: `"${instruction.stepId}" failed repeatedly: ${result.reason ?? "unknown"}`,
+          });
+          return;
+        }
+      } else {
+        repeated = 0;
+        lastFailure = result.status === "done" ? "" : signature;
+      }
+
       if (result.status === "done") {
-        performed.add(reply.instruction.stepId);
+        performed.add(instruction.stepId);
         const tally = await getExecution();
         await patch({ allowed: tally.allowed + 1 });
         stepIndex++;

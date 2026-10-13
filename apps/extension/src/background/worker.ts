@@ -259,6 +259,12 @@ chrome.runtime.onMessage.addListener((message: ContentMessage | PanelMessage, _s
         return respond(await panelState());
 
       case "bridge:run": {
+        // Three "Loaded" entries in one timeline: Run was pressed more than
+        // once, and each press started a fresh run over the top of the last.
+        const live = await getExecution();
+        if (["loading", "awaiting_params", "running", "awaiting_approval"].includes(live.status)) {
+          return respond(live);
+        }
         // Opening the panel here matters: the receiver clicked Run on a web
         // page and everything that follows - parameters, the live timeline, a
         // block - happens in the panel, which they may never have opened.

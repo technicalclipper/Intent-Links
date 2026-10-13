@@ -50,6 +50,41 @@ function isDisabled(el: Element): boolean {
   );
 }
 
+/**
+ * Which DOM operation this element actually supports.
+ *
+ * Guessing from the verb was wrong in a way that broke a real run:
+ * `set_theme` matched a "set_*" rule, was treated as a fill, and called the
+ * native <input> value setter on a button - "Illegal invocation", ten times
+ * in a row. Setting a theme is a click on an option, not typing.
+ *
+ * The element in hand already says what can be done to it, so ask it. The
+ * verb only breaks ties the role leaves open.
+ */
+export function operationFor(el: Element, verb: string, value: string | undefined): PerformRequest["op"] {
+  const role = (el.getAttribute("role") || "").toLowerCase();
+  const tag = el.tagName.toLowerCase();
+  const type = (el.getAttribute("type") || "").toLowerCase();
+
+  if (tag === "select") return "select";
+  if (role === "combobox" || role === "listbox") {
+    // A real <select> takes a value; a composed combobox is opened by click.
+    return tag === "select" ? "select" : "click";
+  }
+  if (role === "switch" || role === "checkbox" || type === "checkbox" || type === "radio") {
+    return "toggle";
+  }
+  if (tag === "textarea" || el.getAttribute("contenteditable") === "true") return "fill";
+  if (tag === "input") {
+    return ["button", "submit", "reset", "image", "file"].includes(type) ? "click" : "fill";
+  }
+
+  // Radios, options, menu items, links, buttons and anything a component app
+  // invented: clicking is what a person does to them, whatever the verb said.
+  if (value !== undefined && (role === "textbox" || role === "searchbox")) return "fill";
+  return "click";
+}
+
 export function performAction(
   el: Element | undefined,
   request: PerformRequest,
@@ -63,8 +98,11 @@ export function performAction(
     return { ok: false, reason: "element is disabled" };
   }
 
+  // The caller's op is a proposal; the element decides what is possible.
+  const op = operationFor(el, request.verb, request.value);
+
   try {
-    switch (request.op) {
+    switch (op) {
       case "click": {
         (el as HTMLElement).click();
         break;
@@ -118,7 +156,7 @@ export function performAction(
       }
 
       default:
-        return { ok: false, reason: `unsupported operation "${request.op}"` };
+        return { ok: false, reason: `unsupported operation "${op}"` };
     }
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : "action threw" };

@@ -107,19 +107,44 @@ def _action_from(tool_args: dict[str, Any], ctx: Context, tool_name: str) -> Pro
         args=args,
         origin=tool_args.get("origin"),
         path=tool_args.get("path"),
-        # Only a well-formed digest is forwarded. A model-supplied hash is a
-        # guess; a malformed one made the policy service reject the whole
-        # action as invalid (400), which surfaced as an unexplained block
-        # rather than a policy decision. Dropping it costs the token its
-        # binding for that call, which is strictly better than a false block.
-        target_hash=(
-            th
-            if isinstance(th := tool_args.get("target_hash"), str)
-            and len(th) == 64
-            and all(c in "0123456789abcdef" for c in th.lower())
-            else None
-        ),
+        target_hash=_target_hash(tool_args, state),
         target_name=tool_args.get("target_name"),
+    )
+
+
+def _target_hash(tool_args: dict[str, Any], state: Any) -> str | None:
+    """The hash of the element the extension actually resolved.
+
+    Looked up by HANDLE from the observation the extension just reported,
+    rather than taken from the model. A model-relayed hash produced a token
+    bound to one value and redeemed against another - "wrong_target" on an
+    action the engine had permitted.
+
+    The model's job is choosing WHICH candidate; the extension computed the
+    hashes and is the only thing that knows them. Its handle is the answer,
+    and the hash follows from it.
+    """
+    handle = tool_args.get("target_handle")
+    observation = state.get("intentlink:observation") or {}
+    for candidate in observation.get("candidates", []):
+        if candidate.get("handle") == handle:
+            digest = candidate.get("targetHash")
+            if _is_digest(digest):
+                return str(digest)
+            return None
+
+    # No matching candidate: fall back to the model's, but only if it is at
+    # least well formed. A malformed one made the policy service reject the
+    # whole action as invalid, which surfaced as an unexplained block.
+    fallback = tool_args.get("target_hash")
+    return str(fallback) if _is_digest(fallback) else None
+
+
+def _is_digest(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(c in "0123456789abcdef" for c in value.lower())
     )
 
 

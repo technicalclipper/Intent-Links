@@ -12,6 +12,7 @@ import {
 } from "./resolve.js";
 import { appIdentity as appIdentityFor, routeTemplate } from "./capture.js";
 import { composedParent, composedTarget } from "./dom.js";
+import { operationFor } from "./perform.js";
 
 function mount(html: string): Document {
   const { document } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
@@ -295,4 +296,36 @@ test("browser-internal pages are not somewhere a person did anything", () => {
   for (const real of ["/account", "/watch", "/admin/channels", "/feed/subscriptions"]) {
     assert.doesNotMatch(real, /\b(warmup|newtab|blank)\b/, `${real} is a real page`);
   }
+});
+
+/* ------------------------- choosing the operation ------------------------- */
+
+test("the element decides the operation, not the verb", () => {
+  // `set_theme` matched a "set_*" rule, was treated as a fill, and called the
+  // native <input> value setter on a button: "Illegal invocation", ten times
+  // over. Setting a theme is a click on an option.
+  const doc = mount(`
+    <button id="menu">Account menu</button>
+    <div id="opt" role="radio">Light theme</div>
+    <input id="text" type="text">
+    <input id="check" type="checkbox">
+    <select id="sel"><option>a</option></select>
+    <textarea id="area"></textarea>
+    <div id="rich" contenteditable="true"></div>
+  `);
+  const q = (sel: string) => doc.querySelector(sel) as unknown as Element;
+
+  assert.equal(operationFor(q("#menu"), "set_theme", "Light theme"), "click");
+  assert.equal(operationFor(q("#opt"), "set_theme", "Light theme"), "click");
+  assert.equal(operationFor(q("#text"), "set_name", "hello"), "fill");
+  assert.equal(operationFor(q("#check"), "set_flag", "true"), "toggle");
+  assert.equal(operationFor(q("#sel"), "set_priority", "a"), "select");
+  assert.equal(operationFor(q("#area"), "set_notes", "x"), "fill");
+  assert.equal(operationFor(q("#rich"), "set_body", "x"), "fill");
+});
+
+test("a switch is toggled even when the verb sounds like typing", () => {
+  const doc = mount(`<div id="sw" role="switch" aria-checked="false">Autoplay</div>`);
+  const el = doc.querySelector("#sw") as unknown as Element;
+  assert.equal(operationFor(el, "set_autoplay", "on"), "toggle");
 });

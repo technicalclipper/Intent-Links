@@ -212,6 +212,24 @@ export function toIntentLink(raw: RawCompilation, ctx: ValidationContext): Inten
       problems.push(`step ${step.id}: cites no source events`);
     }
 
+    /*
+     * A step whose events carry no element is a step with nothing to act on.
+     * The executor resolves against the recorded descriptors, and with none
+     * of them every candidate scores zero - so the step can never match
+     * anything, on any page, and the run reports that nothing was done
+     * without ever saying why.
+     *
+     * Usually it means the model built a step out of a navigation.
+     */
+    const citesAnElement = step.sourceEvents.some((seq) =>
+      ctx.trace.events.some((e) => e.seq === seq && e.target),
+    );
+    if (!citesAnElement && step.sourceEvents.length > 0) {
+      problems.push(
+        `step ${step.id}: cites only events with no element (${step.sourceEvents.join(", ")}), so there is nothing to act on`,
+      );
+    }
+
     for (const dep of step.dependsOn ?? []) {
       if (!stepIds.has(dep)) {
         problems.push(`step ${step.id}: depends on unknown step "${dep}"`);

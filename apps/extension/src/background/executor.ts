@@ -303,13 +303,36 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
    */
   let repeated = 0;
   let lastFailure = "";
+  /** Report each step's search once, not on every turn it takes. */
+  let lastReported = -1;
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const current = await getExecution();
     if (current.status === "aborted") return;
 
     const step = link.intent.steps[Math.min(stepIndex, link.intent.steps.length - 1)];
-    const observation = await observe(tabId, step?.hints ?? []);
+
+    /*
+     * Resolution used to be invisible. A run that found nothing reported
+     * "nothing was done" and left no trace of what it had been looking for or
+     * what was on the page - which is the one thing needed to fix it.
+     */
+    const observation = await observeWithRetry(tabId, step);
+    const wanted = (step?.hints?.[0] as { role?: string; name?: string } | undefined);
+    const best = observation.candidates[0];
+
+    if (step && stepIndex !== lastReported) {
+      lastReported = stepIndex;
+      await note({
+        verdict: best ? "info" : "failed",
+        stepId: step.id,
+        detail: best
+          ? `looking for ${wanted?.role ?? "?"} “${wanted?.name ?? ""}” — best match ${
+              best.descriptor.role
+            } “${best.descriptor.name}” at ${best.confidence.toFixed(2)}`
+          : `looking for ${wanted?.role ?? "?"} “${wanted?.name ?? ""}” — nothing on this page matched`,
+      });
+    }
 
     /*
      * When resolution is certain, act without a model turn.
@@ -428,12 +451,16 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
        */
       const required = link.intent.steps.filter((st) => !performed.has(st.id));
       if (performed.size === 0 && link.intent.steps.length > 0) {
-        await note({
-          verdict: "failed",
-          detail:
-            "The agent reported success without performing any step. Nothing was changed.",
-        });
-        await patch({ status: "failed", error: "Nothing was done. No step was performed." });
+        // Say what it was looking for. "Nothing was done" alone gives the
+        // receiver nothing to act on and nobody anything to debug.
+        const first = link.intent.steps[0];
+        const hint = first?.hints?.[0] as { role?: string; name?: string } | undefined;
+        const detail = hint?.name
+          ? `Could not find ${hint.role ?? "a control"} “${hint.name}” on this page.`
+          : `Step “${first?.title ?? "?"}” has no recorded control to look for.`;
+
+        await note({ verdict: "failed", detail: `Nothing was changed. ${detail}` });
+        await patch({ status: "failed", error: `Nothing was done. ${detail}` });
         return;
       }
       await note({
@@ -623,6 +650,28 @@ async function waitForLoad(tabId: number, timeoutMs = 20_000): Promise<void> {
     }
     await new Promise((r) => setTimeout(r, 200));
   }
+}
+
+/**
+ * Observe, giving the page a few chances to finish rendering.
+ *
+ * `tab.status === "complete"` means the document loaded, not that the app
+ * drew anything. YouTube and anything else built on components render their
+ * controls after that, so the first look at a freshly opened tab finds an
+ * empty shell and reports the control missing.
+ */
+async function observeWithRetry(
+  tabId: number,
+  step: CompiledStep | undefined,
+): Promise<Awaited<ReturnType<typeof observe>>> {
+  const hints = step?.hints ?? [];
+  let observation = await observe(tabId, hints);
+
+  for (let attempt = 0; attempt < 3 && observation.candidates.length === 0; attempt++) {
+    await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+    observation = await observe(tabId, hints);
+  }
+  return observation;
 }
 
 /** Ask every frame to resolve, and keep the best answer plus its frame. */

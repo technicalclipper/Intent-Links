@@ -302,3 +302,19 @@ test("evidence is scoped per step, not pooled across the trace", () => {
   raw.steps[0]!.args.push({ name: "priority", kind: "literal", value: "Highest" });
   expectProblem(raw, /not evidenced by the events this step cites/);
 });
+
+test("a step built from a navigation has nothing to act on and is rejected", () => {
+  // The executor resolves against recorded descriptors. A step whose events
+  // carry none can never match anything on any page, and the run reports
+  // "nothing was done" without ever saying why.
+  const raw = clone();
+  raw.steps[0]!.sourceEvents = [0]; // event 0 is a navigate, no target
+  expectProblem(raw, /nothing to act on/);
+});
+
+test("a step citing a mix still passes if one event has an element", () => {
+  const raw = clone();
+  raw.steps[0]!.sourceEvents = [0, 1, 2];
+  const intent = toIntentLink(raw, { ...CTX, trace });
+  assert.ok(intent.steps[0]!.hints.length > 0, "it must carry a resolvable hint");
+});

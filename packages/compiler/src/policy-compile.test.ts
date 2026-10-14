@@ -30,11 +30,10 @@ const CTX = {
 /** A policy that permits exactly what the workflow does, plus real boundaries. */
 const WELL_FORMED: RawPolicy = {
   rules: [
-    { sourceText: "run the incident setup", kind: "allow", verb: "create_channel", boundSteps: ["s1"], reasoning: "the workflow creates the channel" },
-    { sourceText: "run the incident setup", kind: "allow", verb: "set_setting", boundSteps: ["s2"], reasoning: "visibility" },
-    { sourceText: "run the incident setup", kind: "allow", verb: "set_topic", boundSteps: ["s3"], reasoning: "topic" },
-    { sourceText: "run the incident setup", kind: "allow", verb: "create_issue", boundSteps: ["s4"], reasoning: "tracking issue" },
-    { sourceText: "run the incident setup", kind: "allow", verb: "set_field", boundSteps: ["s5"], reasoning: "priority" },
+    { sourceText: "run the incident setup", kind: "allow", verb: "open_dialog", boundSteps: ["s1", "s5"], reasoning: "the forms have to be opened" },
+    { sourceText: "run the incident setup", kind: "allow", verb: "set_field", boundSteps: ["s2", "s6", "s7"], reasoning: "the fields it fills" },
+    { sourceText: "run the incident setup", kind: "allow", verb: "set_setting", boundSteps: ["s3"], reasoning: "visibility" },
+    { sourceText: "run the incident setup", kind: "allow", verb: "set_topic", boundSteps: ["s4"], reasoning: "topic" },
     {
       sourceText: "don't invite anyone outside the company",
       kind: "deny",
@@ -78,7 +77,7 @@ test("the prompt grounds the model in the workflow's real action space", () => {
   const rendered = renderActionSpace(intent);
   // Without this the model invents verbs that match nothing, and the policy is
   // decorative: rules that look right in review and never fire.
-  assert.match(rendered, /create_channel/);
+  assert.match(rendered, /open_dialog/);
   assert.match(rendered, /incident_slug/);
   assert.match(rendered, /s5\b/);
 });
@@ -91,7 +90,7 @@ test("the prompt offers verbs the workflow does NOT perform", () => {
   assert.match(rendered, /invite_user/);
   // ...but does not repeat the workflow's own verbs in that list.
   const adjacent = rendered.slice(rendered.indexOf("RELATED ACTIONS"));
-  assert.ok(!adjacent.includes("create_channel"));
+  assert.ok(!adjacent.includes("set_topic"));
 });
 
 /* -------------------------------- building -------------------------------- */
@@ -99,7 +98,9 @@ test("the prompt offers verbs the workflow does NOT perform", () => {
 test("rules become allow / deny / approval buckets", () => {
   const policy = buildPolicy(clone(), CTX);
   // Five from the creator, plus the implicit observation allow.
-  assert.equal(policy.allowed.length, 6);
+  // Four from the creator, plus implicit observation, plus implicit
+  // permission for any recorded verb the creator did not mention.
+  assert.equal(policy.allowed.length, 5);
   assert.equal(policy.denied.length, 2);
   assert.equal(policy.approvalRequired.length, 1);
 });
@@ -135,7 +136,7 @@ test("every rule keeps the creator's sentence for the block screen", () => {
 
 test("'ask me' defaults to the creator, never the receiver", () => {
   const raw = clone();
-  delete raw.rules[7]!.route;
+  delete raw.rules.find((r) => r.kind === "approval")!.route;
   const policy = buildPolicy(raw, CTX);
   // Routing to the receiver would let whoever runs the workflow approve their
   // own action, which is not what "ask me" means.
@@ -192,7 +193,7 @@ test("a boundary that blocks the workflow's own step is reported, with the sente
     sourceText: "don't change any fields on issues",
     kind: "deny",
     verb: "set_field",
-    boundSteps: ["s5"],
+    boundSteps: ["s7"],
     reasoning: "no field edits",
   });
   const policy = buildPolicy(raw, CTX);
@@ -201,7 +202,7 @@ test("a boundary that blocks the workflow's own step is reported, with the sente
   assert.equal(runnable, false);
   const blocked = diagnostics.find((d) => d.code === "step_blocked");
   assert.ok(blocked, "the clash must be surfaced");
-  assert.equal(blocked.stepId, "s5");
+  assert.equal(blocked.stepId, "s2");
   assert.match(blocked.message, /don't change any fields on issues/);
 });
 
@@ -230,7 +231,7 @@ test("a constrained allow is NOT replaced by the implicit permission", () => {
     kind: "allow",
     verb: "set_setting",
     args: [{ arg: "visibility", op: "matches", value: "[Ll]ight" }],
-    boundSteps: ["s2"],
+    boundSteps: ["s3"],
     reasoning: "constrained to light",
   });
 
@@ -246,7 +247,7 @@ test("a deny still beats the implicit permission", () => {
   raw.rules.push({
     sourceText: "do not touch issues at all",
     kind: "deny",
-    verb: "create_issue",
+    verb: "set_topic",
     boundSteps: ["s4"],
     reasoning: "",
   });
@@ -265,14 +266,14 @@ test("a step that will pause for approval every run is a warning, not an error",
     verb: "set_field",
     object: "priority",
     route: "creator",
-    boundSteps: ["s5"],
+    boundSteps: ["s7"],
     reasoning: "",
   });
   const policy = buildPolicy(raw, CTX);
   const { runnable, diagnostics } = analyze(policy, raw, CTX);
 
   assert.equal(runnable, true, "approval is a pause, not a block");
-  assert.ok(diagnostics.some((d) => d.code === "step_needs_approval" && d.stepId === "s5"));
+  assert.ok(diagnostics.some((d) => d.code === "step_needs_approval" && d.stepId === "s7"));
 });
 
 /* ------------------------------- diagnostics ------------------------------ */
@@ -301,7 +302,8 @@ test("an allow-everything rule is flagged", () => {
 
 test("'ask me' routed to the receiver is flagged as self-approval", () => {
   const raw = clone();
-  raw.rules[7] = { ...raw.rules[7]!, route: "receiver" };
+  const approval = raw.rules.find((r) => r.kind === "approval")!;
+  approval.route = "receiver";
   const policy = buildPolicy(raw, CTX);
   const { diagnostics } = analyze(policy, raw, CTX);
   assert.ok(diagnostics.some((d) => d.code === "self_approval"));
@@ -341,7 +343,7 @@ test("a model that stands its ground has the block REPORTED, not hidden", async 
   blocking.rules.push({
     sourceText: "do not touch issues at all",
     kind: "deny",
-    verb: "create_issue",
+    verb: "set_topic",
     boundSteps: ["s4"],
     reasoning: "the creator really did forbid this",
   });
@@ -370,7 +372,7 @@ test("an unusable response is repaired", async () => {
 
 test("policy JSON wrapped in a fence is recovered", () => {
   const body = JSON.stringify(WELL_FORMED);
-  assert.equal(parsePolicyJson("```json\n" + body + "\n```").rules.length, 8);
+  assert.equal(parsePolicyJson("```json\n" + body + "\n```").rules.length, WELL_FORMED.rules.length);
 });
 
 test("explain() shows each sentence, what it became, and what it touches", () => {

@@ -70,7 +70,8 @@ test("redacted values are described but never reproduced", () => {
 
 test("the golden compilation validates and becomes an IntentLink", () => {
   const intent = toIntentLink(clone(), { ...CTX, trace });
-  assert.equal(intent.steps.length, 5);
+  // One interaction per step, which is what the executor can perform.
+  assert.equal(intent.steps.length, 7);
   assert.equal(intent.params.length, 3);
   assert.equal(intent.status, "draft");
 });
@@ -78,16 +79,16 @@ test("the golden compilation validates and becomes an IntentLink", () => {
 test("parameterization: the channel name varies, the visibility does not", () => {
   const intent = toIntentLink(clone(), { ...CTX, trace });
 
-  const create = intent.steps.find((s) => s.id === "s1")!;
-  assert.deepEqual(create.action.args["name"], { param: "incident_slug" });
+  const name = intent.steps.find((s) => s.id === "s2")!;
+  assert.deepEqual(name.action.args["name"], { param: "incident_slug" });
 
-  const visibility = intent.steps.find((s) => s.id === "s2")!;
+  const visibility = intent.steps.find((s) => s.id === "s3")!;
   assert.deepEqual(visibility.action.args["visibility"], { literal: "private" });
 });
 
 test("a condition is extracted from a single observation plus narration", () => {
   const intent = toIntentLink(clone(), { ...CTX, trace });
-  const priority = intent.steps.find((s) => s.id === "s5")!;
+  const priority = intent.steps.find((s) => s.id === "s7")!;
   // The recording shows exactly one priority. "Highest for a sev2" is what
   // turns that into a branch rather than a constant.
   assert.match(priority.condition ?? "", /sev/);
@@ -135,7 +136,7 @@ test("a literal that WAS demonstrated is accepted", () => {
   assert.ok(observed.has("Highest"), "fixture sanity: Highest was demonstrated");
   const intent = toIntentLink(clone(), { ...CTX, trace });
   assert.deepEqual(
-    intent.steps.find((s) => s.id === "s5")!.action.args["value"],
+    intent.steps.find((s) => s.id === "s7")!.action.args["value"],
     { literal: "Highest" },
   );
 });
@@ -157,18 +158,20 @@ test("a redacted value cannot be reconstructed as a literal", () => {
   expectProblem(raw, /not evidenced by the events this step cites/);
 });
 
-test("a legitimate literal survives on a step that also touches a redacted event", () => {
-  // The case real models kept failing. create_issue groups the summary, the
-  // board key INC, and the redacted assignee; an earlier step-level redaction
-  // ban rejected INC for the company its event kept. The restriction belongs
-  // on the value, not the step.
+test("a legitimate literal survives on a step that touches a redacted event", () => {
+  // The case real models kept failing. An earlier rule banned every literal on
+  // any step that merely CITED a redacted event, which rejected a board key
+  // for the company its event kept. The restriction belongs on the value.
   const raw = clone();
-  const createIssue = raw.steps.find((s) => s.id === "s4")!;
-  createIssue.sourceEvents = [5, 6, 7, 9];
+  const step = raw.steps.find((s) => s.id === "s6")!;
+  step.sourceEvents = [9]; // the redacted assignee, and nothing else
+  step.args = [
+    { name: "project", kind: "literal", value: "INC", rationale: "from the board path" },
+  ];
 
   const intent = toIntentLink(raw, { ...CTX, trace });
   assert.deepEqual(
-    intent.steps.find((s) => s.id === "s4")!.action.args["project"],
+    intent.steps.find((s) => s.id === "s6")!.action.args["project"],
     { literal: "INC" },
   );
 });
@@ -270,9 +273,9 @@ test("a model that never recovers fails loudly with its problems", async () => {
 
 test("JSON wrapped in prose or a fence is still recovered", () => {
   const body = JSON.stringify(golden);
-  assert.equal(parseJson(body).steps.length, 5);
-  assert.equal(parseJson("```json\n" + body + "\n```").steps.length, 5);
-  assert.equal(parseJson("Here you go:\n" + body + "\nHope that helps!").steps.length, 5);
+  assert.equal(parseJson(body).steps.length, 7);
+  assert.equal(parseJson("```json\n" + body + "\n```").steps.length, 7);
+  assert.equal(parseJson("Here you go:\n" + body + "\nHope that helps!").steps.length, 7);
 });
 
 test("a response with no usable JSON is reported, not silently empty", () => {
@@ -286,11 +289,11 @@ test("constants that were demonstrated without being typed are accepted", () => 
   // Both are plainly demonstrated; neither appears in any event's `value`.
   const intent = toIntentLink(clone(), { ...CTX, trace });
   assert.deepEqual(
-    intent.steps.find((s) => s.id === "s2")!.action.args["visibility"],
+    intent.steps.find((s) => s.id === "s3")!.action.args["visibility"],
     { literal: "private" },
   );
   assert.deepEqual(
-    intent.steps.find((s) => s.id === "s4")!.action.args["project"],
+    intent.steps.find((s) => s.id === "s6")!.action.args["project"],
     { literal: "INC" },
   );
 });
@@ -312,9 +315,31 @@ test("a step built from a navigation has nothing to act on and is rejected", () 
   expectProblem(raw, /nothing to act on/);
 });
 
-test("a step citing a mix still passes if one event has an element", () => {
+test("a navigation alongside one interaction is fine", () => {
+  // A navigation is context for the click beside it, not a second action, so
+  // it must not trip the one-interaction rule.
   const raw = clone();
-  raw.steps[0]!.sourceEvents = [0, 1, 2];
+  raw.steps[0]!.sourceEvents = [0, 1];
   const intent = toIntentLink(raw, { ...CTX, trace });
   assert.ok(intent.steps[0]!.hints.length > 0, "it must carry a resolvable hint");
+});
+
+test("a step citing several interactions is rejected", () => {
+  // The executor performs ONE action per step, so a step citing three clicks
+  // performs the first and calls the step done. A real run compiled "open the
+  // account menu, open Appearance, choose Light theme" into one set_theme step
+  // whose control was the account menu: the menu opened, the step was marked
+  // complete, and the theme never changed.
+  const raw = clone();
+  raw.steps[0]!.sourceEvents = [1, 2, 3];
+  const problems = expectProblem(raw, /cites 3 separate interactions/);
+  assert.ok(problems.some((p) => /only the first would ever be performed/.test(p)));
+});
+
+test("navigations alongside one interaction are fine", () => {
+  // A navigation is context for the click beside it, not a second action.
+  const raw = clone();
+  // s1 already cites a navigate plus one click, which is the shape in question.
+  const intent = toIntentLink(raw, { ...CTX, trace });
+  assert.ok(intent.steps[0]!.hints.length > 0);
 });

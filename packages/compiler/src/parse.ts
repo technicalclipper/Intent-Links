@@ -221,12 +221,37 @@ export function toIntentLink(raw: RawCompilation, ctx: ValidationContext): Inten
      *
      * Usually it means the model built a step out of a navigation.
      */
-    const citesAnElement = step.sourceEvents.some((seq) =>
-      ctx.trace.events.some((e) => e.seq === seq && e.target),
-    );
-    if (!citesAnElement && step.sourceEvents.length > 0) {
+    const cited = step.sourceEvents
+      .map((seq) => ctx.trace.events.find((e) => e.seq === seq))
+      .filter((e): e is NonNullable<typeof e> => Boolean(e));
+
+    if (!cited.some((e) => e.target) && step.sourceEvents.length > 0) {
       problems.push(
         `step ${step.id}: cites only events with no element (${step.sourceEvents.join(", ")}), so there is nothing to act on`,
+      );
+    }
+
+    /*
+     * One step, one interaction - enforced here because the prompt alone did
+     * not hold it.
+     *
+     * The executor performs exactly one action per step, so a step citing
+     * three clicks performs the FIRST and reports the step done. A real run
+     * compiled "open the account menu, open Appearance, choose Light theme"
+     * into a single set_theme step whose recorded control was the account
+     * menu: the menu opened, the step was marked complete, and the theme
+     * never changed.
+     *
+     * Navigations do not count - they are context for the clicks around them.
+     */
+    const interactions = cited.filter(
+      (e) => e.target && e.type !== "navigate" && e.type !== "wait",
+    );
+    if (interactions.length > 1) {
+      problems.push(
+        `step ${step.id}: cites ${interactions.length} separate interactions (${interactions
+          .map((e) => `${e.type} ${JSON.stringify(e.target?.name ?? "")}`)
+          .join(", ")}). Each one is its own step; only the first would ever be performed.`,
       );
     }
 

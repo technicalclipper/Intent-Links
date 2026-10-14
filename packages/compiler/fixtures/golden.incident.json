@@ -36,28 +36,41 @@
   "steps": [
     {
       "id": "s1",
-      "title": "Create the incident channel",
-      "intent": "One place for the bridge to coordinate",
+      "title": "Open the create-channel dialog",
+      "intent": "The channel form does not exist until this is clicked",
       "app": "slack",
-      "verb": "create_channel",
-      "object": "channel",
+      "verb": "open_dialog",
+      "object": "channel_form",
+      "args": [],
+      "dependsOn": [],
+      "sourceEvents": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "s2",
+      "title": "Name the incident channel",
+      "app": "slack",
+      "verb": "set_field",
+      "object": "channel_name",
       "args": [
         {
           "name": "name",
           "kind": "param",
           "value": "incident_slug",
-          "rationale": "The channel is named for the incident."
+          "rationale": "Names this particular incident."
         }
       ],
-      "dependsOn": [],
+      "dependsOn": [
+        "s1"
+      ],
       "sourceEvents": [
-        0,
-        1,
         2
       ]
     },
     {
-      "id": "s2",
+      "id": "s3",
       "title": "Make the channel private",
       "intent": "Narration: \"Always make the incident channel private first\"",
       "app": "slack",
@@ -68,20 +81,19 @@
           "name": "visibility",
           "kind": "literal",
           "value": "private",
-          "rationale": "A team convention, not a per-incident choice. Stated in the narration as 'always'."
+          "rationale": "A team convention stated as 'always', not a per-incident choice."
         }
       ],
       "dependsOn": [
-        "s1"
+        "s2"
       ],
       "sourceEvents": [
         3
       ]
     },
     {
-      "id": "s3",
+      "id": "s4",
       "title": "Set the channel topic",
-      "intent": "So anyone joining sees the severity immediately",
       "app": "slack",
       "verb": "set_topic",
       "object": "channel",
@@ -94,19 +106,33 @@
         }
       ],
       "dependsOn": [
-        "s2"
+        "s3"
       ],
       "sourceEvents": [
         4
       ]
     },
     {
-      "id": "s4",
-      "title": "Create the tracking issue",
-      "intent": "Every incident gets an issue for the post-mortem trail",
+      "id": "s5",
+      "title": "Open the create-issue dialog",
       "app": "jira",
-      "verb": "create_issue",
-      "object": "issue",
+      "verb": "open_dialog",
+      "object": "issue_form",
+      "args": [],
+      "dependsOn": [
+        "s1"
+      ],
+      "sourceEvents": [
+        5,
+        6
+      ]
+    },
+    {
+      "id": "s6",
+      "title": "Summarise the incident on the issue",
+      "app": "jira",
+      "verb": "set_field",
+      "object": "summary",
       "args": [
         {
           "name": "summary",
@@ -118,21 +144,19 @@
           "name": "project",
           "kind": "literal",
           "value": "INC",
-          "rationale": "Incidents always go on the INC board; a different board would be a different workflow."
+          "rationale": "Incidents always go on the INC board."
         }
       ],
       "dependsOn": [
-        "s1"
+        "s5"
       ],
       "sourceEvents": [
-        5,
-        6,
         7
       ]
     },
     {
-      "id": "s5",
-      "title": "Set the issue priority from the severity",
+      "id": "s7",
+      "title": "Set issue priority from the severity",
       "intent": "Narration: \"Priority is highest for a sev2\"",
       "app": "jira",
       "verb": "set_field",
@@ -142,12 +166,12 @@
           "name": "value",
           "kind": "literal",
           "value": "Highest",
-          "rationale": "Derived from severity rather than chosen freely; the condition carries the rule."
+          "rationale": "Derived from severity; the condition carries the rule."
         }
       ],
       "condition": "severity is sev1 or sev2",
       "dependsOn": [
-        "s4"
+        "s6"
       ],
       "sourceEvents": [
         8

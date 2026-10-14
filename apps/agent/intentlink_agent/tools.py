@@ -78,9 +78,12 @@ def perform_action(
     # The gate authorized the step's OWN verb; the extension redeems against
     # it, and the token is bound to it. Sending the model's spelling here
     # would fail the redeem even though the action was permitted.
-    declared = (ctx.state.get("intentlink:step_args") or {}).get(
-        str(ctx.state.get("intentlink:current_step") or step_id)
-    ) or {}
+    # The extension drives the loop and told us which step this is. The token
+    # was bound to THAT step, so returning the model's own step_id in the
+    # instruction made the redeem fail as wrong_step on an action the engine
+    # had just permitted. Last place the model's version was still leaking.
+    step_id = str(ctx.state.get("intentlink:current_step") or step_id)
+    declared = (ctx.state.get("intentlink:step_args") or {}).get(step_id) or {}
     verb = str(declared.get("verb") or verb)
     args = {**args, **(declared.get("args") or {})}
 

@@ -186,6 +186,28 @@ record that the later ones need the earlier.
   parameter the receiver must supply.
 * Give every parameter a rationale. It is shown to the creator for review, and
   a parameter you cannot justify is probably a literal.
+
+A PARAMETER IS SOMETHING THE RECEIVER CAN ACTUALLY SUPPLY
+
+Before making a value a parameter, ask whether the person running this
+workflow could know it and type it. If not, it is not an input - it is a
+detail of the thing that was clicked, and it belongs in the recorded
+descriptor the executor matches against, not in a form.
+
+  "madan gowri"              a parameter. Someone can type that.
+  "inc-2026-10-05-payments"  a parameter.
+  "Light theme"              a parameter, chosen from a short list.
+
+  "Part - 2 : Anojan ... | Madan Gowri 13 minutes, 20 seconds"
+                             NOT a parameter. That is a link's full
+                             accessible name, duration included. Nobody can
+                             reproduce it, and asking for it makes the
+                             workflow unrunnable by anyone but the creator.
+
+A long value, a value carrying metadata like a duration or a view count, or a
+value that is simply the label of the element being clicked, are all the same
+mistake. When the step is "open the thing I searched for", the search term is
+the parameter and the result is found by matching, not by being typed again.
 `.trim();
 
 /**

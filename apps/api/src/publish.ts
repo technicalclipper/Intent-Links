@@ -158,10 +158,13 @@ const esc = (s: string): string =>
   );
 
 function paramRow(p: Parameter): string {
-  const hint = p.recordedExample ? `e.g. ${esc(String(p.recordedExample))}` : "";
+  const example = p.recordedExample ? String(p.recordedExample) : "";
+  // Long values are usually an element's own label rather than something a
+  // person would type, so show enough to recognise it and no more.
+  const shown = example.length > 64 ? `${example.slice(0, 64)}…` : example;
   return `<li><code>${esc(p.name)}</code> <span class="t">${esc(p.type)}</span>
     ${p.required ? '<span class="req">required</span>' : ""}
-    <span class="hint">${hint}</span></li>`;
+    ${shown ? `<span class="hint">starts as ${esc(shown)}</span>` : ""}</li>`;
 }
 
 /**
@@ -297,7 +300,8 @@ export function consentPage(link: PublishedLink, baseUrl: string): string {
   ${denied ? `<section><h2>Prohibited</h2><ul>${denied}</ul></section>` : ""}
   ${
     intent.params.length
-      ? `<section><h2>You will be asked for</h2><ul>${intent.params.map(paramRow).join("")}</ul></section>`
+      ? `<section><h2>You can change</h2><ul>${intent.params.map(paramRow).join("")}</ul>
+         <p class="small">Each starts at the value from the recording. Run it as-is, or change one to do the same workflow for something else.</p></section>`
       : ""
   }
   ${

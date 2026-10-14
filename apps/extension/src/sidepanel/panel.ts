@@ -154,6 +154,7 @@ function renderParams(execution: ExecutionState): void {
         const option = document.createElement("option");
         option.value = value;
         option.textContent = value;
+        if (value === param.recordedExample) option.selected = true;
         select.appendChild(option);
       }
       field = select;
@@ -161,17 +162,31 @@ function renderParams(execution: ExecutionState): void {
       const input = document.createElement("input");
       input.type = param.type === "number" ? "number" : "text";
       if (param.required) input.required = true;
+      /*
+       * Pre-filled with what the creator demonstrated.
+       *
+       * Running a workflow as recorded should take one click, not retyping.
+       * It also rescues a parameter whose value nobody could reproduce - a
+       * search result's full accessible name, duration and all - which is
+       * otherwise a form field that cannot be filled in correctly by anyone
+       * except the person who made the recording.
+       */
+      if (param.recordedExample) input.value = param.recordedExample;
       field = input;
     }
     field.name = param.name;
+    field.id = `param-${param.name}`;
+    label.htmlFor = field.id;
     label.appendChild(field);
 
-    if (param.recordedExample) {
-      const eg = document.createElement("span");
-      eg.className = "eg";
-      eg.textContent = `recorded as ${param.recordedExample}`;
-      label.appendChild(eg);
-    }
+    const eg = document.createElement("span");
+    eg.className = "eg";
+    eg.textContent = param.recordedExample
+      ? "pre-filled from the recording — change it to run this for something else"
+      : param.required
+        ? "required"
+        : "optional";
+    label.appendChild(eg);
     els.params.appendChild(label);
   }
 }

@@ -66,22 +66,41 @@ export function operationFor(el: Element, verb: string, value: string | undefine
   const tag = el.tagName.toLowerCase();
   const type = (el.getAttribute("type") || "").toLowerCase();
 
+  /*
+   * Real form elements decide by TAG, before any role is considered.
+   *
+   * YouTube's search box is <input role="combobox">, and checking the role
+   * first returned "click" - so a run clicked the search field, typed
+   * nothing, and every step after it failed for want of results. An element
+   * you can type into is an element you type into, whatever the author also
+   * called it.
+   */
   if (tag === "select") return "select";
-  if (role === "combobox" || role === "listbox") {
-    // A real <select> takes a value; a composed combobox is opened by click.
-    return tag === "select" ? "select" : "click";
-  }
-  if (role === "switch" || role === "checkbox" || type === "checkbox" || type === "radio") {
-    return "toggle";
-  }
-  if (tag === "textarea" || el.getAttribute("contenteditable") === "true") return "fill";
+  if (tag === "textarea") return "fill";
+  if (el.getAttribute("contenteditable") === "true") return "fill";
   if (tag === "input") {
-    return ["button", "submit", "reset", "image", "file"].includes(type) ? "click" : "fill";
+    if (["button", "submit", "reset", "image", "file"].includes(type)) return "click";
+    // A radio is SELECTED, never un-selected, so it is a click. Toggling one
+    // computes a target state from the value - and a value like "Light theme"
+    // is not "true", so it concluded the radio should be off, found it
+    // already off, and clicked nothing at all.
+    if (type === "radio") return "click";
+    if (type === "checkbox") return "toggle";
+    return "fill";
   }
 
-  // Radios, options, menu items, links, buttons and anything a component app
-  // invented: clicking is what a person does to them, whatever the verb said.
-  if (value !== undefined && (role === "textbox" || role === "searchbox")) return "fill";
+  // Then roles, for the composed controls an app builds out of divs.
+  if (role === "switch" || role === "checkbox") return "toggle";
+  if (role === "radio" || role === "option" || role === "menuitemradio") return "click";
+  if (role === "textbox" || role === "searchbox") return "fill";
+  if (role === "combobox" && value !== undefined) {
+    // A composed combobox with something to enter is typed into; one with
+    // nothing to enter is opened.
+    return "fill";
+  }
+
+  // Options, menu items, links, buttons, and whatever a component app
+  // invented: clicking is what a person does to them.
   return "click";
 }
 

@@ -22,6 +22,7 @@
     "src/content/resolve.ts",
     "src/content/*.test.ts",
     "src/shared/*.test.ts",
-    "src/content/perform.ts"
+    "src/content/perform.ts",
+    "src/background/executor.ts"
   ]
 }

@@ -175,18 +175,32 @@ export async function beginRun(linkId: string, api: string): Promise<ExecutionSt
  * /decide, still needs a token, still gets redeemed. Only the model is
  * skipped, and only when it would have nothing to contribute.
  */
-const FAST_PATH_CONFIDENCE = 0.995;
+/*
+ * Thresholds for acting without the model.
+ *
+ * 0.995 was the first attempt and it never fired. A real run scored 1.00,
+ * 0.94, 0.94, 0.84, 0.84 - every one a confident, unmistakable match, and
+ * every one paying for a full model turn because it fell short of "exact".
+ * An optimisation that never triggers is not conservative, it is dead code.
+ *
+ * What makes a match safe to act on is not perfection, it is CERTAINTY: a
+ * strong score with nothing else near it. When the runner-up is far behind,
+ * asking a model which of the two is meant has only one possible answer.
+ */
+const FAST_PATH_CONFIDENCE = 0.78;
+const FAST_PATH_MARGIN = 0.12;
 
-function fastPathCandidate(
+export function fastPathCandidate(
   candidates: FramedCandidate[],
 ): FramedCandidate | undefined {
   const [best, runnerUp] = candidates;
-  if (!best || best.tier !== "exact" || best.confidence < FAST_PATH_CONFIDENCE) {
+  if (!best || best.confidence < FAST_PATH_CONFIDENCE) return undefined;
+
+  // A close second means the descriptors do not actually distinguish them,
+  // and choosing between them is exactly the judgment worth paying for.
+  if (runnerUp && best.confidence - runnerUp.confidence < FAST_PATH_MARGIN) {
     return undefined;
   }
-  // An exact match that something else nearly ties is not unambiguous, and
-  // choosing between them is exactly the judgment worth paying for.
-  if (runnerUp && best.confidence - runnerUp.confidence < 0.05) return undefined;
   return best;
 }
 
@@ -810,7 +824,10 @@ async function authorizeAndAct(
    * and observing immediately finds a page that has not changed yet, then
    * reports the control as missing.
    */
-  if (result?.ok) await new Promise((r) => setTimeout(r, 650));
+  // Short, because observeWithRetry already handles a page that needs longer:
+  // it looks again, twice, when nothing matched. Waiting 650ms on every action
+  // to cover the slow case taxed every fast one.
+  if (result?.ok) await new Promise((r) => setTimeout(r, 300));
 
   await note({
     verdict: result?.ok ? "ALLOW" : "failed",

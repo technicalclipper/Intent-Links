@@ -14,6 +14,7 @@ import {
 import { appIdentity as appIdentityFor, routeTemplate } from "./capture.js";
 import { composedParent, composedTarget } from "./dom.js";
 import { operationFor } from "./perform.js";
+import { fastPathCandidate } from "../background/executor.js";
 
 function mount(html: string): Document {
   const { document } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
@@ -402,4 +403,44 @@ test("an exact match still outranks one that needed the allowance", () => {
                              "like this video along with 21,330 other people");
   assert.equal(exact, 1);
   assert.ok(allowed < exact);
+});
+
+test("an input is typed into even when its role says combobox", () => {
+  // YouTube's search box is <input role="combobox">. Checking the role first
+  // returned "click", so a run clicked the field, typed nothing, and every
+  // step after it failed for want of results.
+  const doc = mount(`
+    <input id="yt" role="combobox" type="text" aria-label="Search">
+    <div id="composed" role="combobox">Choose a board</div>
+    <input id="radio" role="option" type="radio">
+    <select id="sel" role="listbox"><option>a</option></select>
+  `);
+  const q = (sel: string) => doc.querySelector(sel) as unknown as Element;
+
+  assert.equal(operationFor(q("#yt"), "search", "madan gowri"), "fill");
+  assert.equal(operationFor(q("#composed"), "select_board", undefined), "click");
+  assert.equal(operationFor(q("#radio"), "set_theme", "Light"), "click");
+  assert.equal(operationFor(q("#sel"), "set_priority", "a"), "select");
+});
+
+/* ------------------------- acting without the model ----------------------- */
+
+test("a confident, unambiguous match does not need the model", () => {
+  // The scores a real page produces: 1.00, 0.94, 0.84. The first threshold
+  // demanded 0.995 and never fired once, so every step paid for a model turn.
+  const certain = (confidence: number, runnerUp?: number) =>
+    fastPathCandidate([
+      { confidence, tier: "fuzzy", handle: 0, targetHash: "a".repeat(64), frameId: 0,
+        descriptor: { role: "button", name: "Account menu" } },
+      ...(runnerUp !== undefined
+        ? [{ confidence: runnerUp, tier: "fuzzy" as const, handle: 1, targetHash: "b".repeat(64),
+             frameId: 0, descriptor: { role: "button", name: "Other" } }]
+        : []),
+    ] as never);
+
+  assert.ok(certain(1.0), "an exact match acts");
+  assert.ok(certain(0.94, 0.3), "a strong match with nothing near it acts");
+  assert.ok(certain(0.84, 0.4), "so does a good one");
+  assert.equal(certain(0.6), undefined, "a weak match asks");
+  assert.equal(certain(0.94, 0.9), undefined, "a close second asks");
 });

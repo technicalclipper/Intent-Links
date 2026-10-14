@@ -105,18 +105,48 @@ function opFor(el: Element): TraceEventType {
  * an inner span or svg; the meaningful target is the nearest ancestor that
  * carries a real role and an accessible name.
  */
+/** Page regions. Real controls live inside them; they are never the target. */
+const CONTAINER_ROLES = new Set([
+  "search",
+  "navigation",
+  "main",
+  "banner",
+  "contentinfo",
+  "complementary",
+  "region",
+  "form",
+  "group",
+  "list",
+  "toolbar",
+  "menubar",
+  "tablist",
+  "dialog",
+  "document",
+  "application",
+]);
+
 function interactiveAncestor(start: Element | null): Element | null {
   let node: Element | null = start;
   let hops = 0;
   while (node && hops++ < 12) {
     const role = node.getAttribute("role")?.trim().toLowerCase();
     const tag = node.tagName.toLowerCase();
-    // role="none" / "presentation" means the author took this element OUT of
-    // the accessibility tree. It is a wrapper, not the control, and keeping
-    // it produced descriptors that named the right thing and matched nothing.
-    const presentational = role === "none" || role === "presentation";
+    /*
+     * Roles that are containers, not controls.
+     *
+     * "none" and "presentation" mean the author took the element out of the
+     * accessibility tree. Landmarks mean it is a REGION of the page. Either
+     * way it is not the thing a person clicked, and capturing it produces a
+     * descriptor that cannot be acted on: a recording of YouTube's search box
+     * captured role="search" - the landmark wrapping the input - and the
+     * executor clicked the region instead of typing in the field.
+     */
+    const container =
+      role === "none" ||
+      role === "presentation" ||
+      CONTAINER_ROLES.has(role ?? "");
     const interactive =
-      (role && !presentational) ||
+      (role && !container) ||
       ["a", "button", "input", "select", "textarea", "summary", "label"].includes(tag) ||
       node.hasAttribute("tabindex") ||
       node.getAttribute("contenteditable") === "true";

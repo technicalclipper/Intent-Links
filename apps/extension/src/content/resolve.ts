@@ -76,6 +76,26 @@ export function normalize(value: string): string {
  * padded labels ("Channel name" vs "Name of channel") where the character
  * sequence diverges but the words are the same.
  */
+/**
+ * Numbers that are metadata rather than identity.
+ *
+ * "like this video along with 19,024 other people" names the same button
+ * tomorrow with a different count, and a recorded duration ("14 minutes, 51
+ * seconds") is part of a link's accessible name on YouTube. Comparing those
+ * literally means a control is unfindable the moment the number moves.
+ *
+ * Deliberately narrow: only separated thousands and explicit units. A bare
+ * small integer is usually identity - "Control 3-7", "Step 2" - and stripping
+ * it would make genuinely different controls look identical.
+ */
+function withoutVolatileNumbers(text: string): string {
+  return text
+    .replace(/\b\d{1,3}(?:[.,]\d{3})+\b/g, " ")
+    .replace(/\b\d+\s*(seconds?|minutes?|hours?|days?|views?|subscribers?)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function similarity(a: string, b: string): number {
   const na = normalize(a);
   const nb = normalize(b);
@@ -83,7 +103,19 @@ export function similarity(a: string, b: string): number {
   if (!na || !nb) return 0;
   if (na === nb) return 1;
 
-  return Math.max(diceBigrams(na, nb), tokenOverlap(na, nb));
+  const direct = Math.max(diceBigrams(na, nb), tokenOverlap(na, nb));
+
+  /*
+   * Stripped from the RAW text, then normalized - not the other way round.
+   * normalize() removes punctuation, so "19,024" is already "19 024" by the
+   * time a thousands-separator pattern looks at it, and nothing matches.
+   */
+  const sa = normalize(withoutVolatileNumbers(a));
+  const sb = normalize(withoutVolatileNumbers(b));
+  if (sa === na && sb === nb) return direct;
+  const stripped = Math.max(diceBigrams(sa, sb), tokenOverlap(sa, sb));
+
+  return Math.max(direct, Math.min(stripped, 0.98));
 }
 
 function diceBigrams(a: string, b: string): number {

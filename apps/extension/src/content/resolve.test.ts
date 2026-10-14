@@ -369,3 +369,37 @@ test("resolution stays fast on a page with many controls", () => {
   // a half seconds, so this fails loudly if the quadratic returns.
   assert.ok(elapsed < 1000, `resolution took ${elapsed}ms on 400 controls`);
 });
+
+test("a name whose numbers change still matches", () => {
+  // YouTube names a like button "like this video along with 19,024 other
+  // people". Tomorrow it is a different count and the recorded control is
+  // unfindable. Durations in a video link's name behave the same way.
+  assert.ok(
+    similarity(
+      "like this video along with 19,024 other people",
+      "like this video along with 21,330 other people",
+    ) > 0.9,
+  );
+  assert.ok(
+    similarity(
+      "Uruttu Reels Ep.19 14 minutes, 51 seconds",
+      "Uruttu Reels Ep.19 14 minutes, 52 seconds",
+    ) > 0.9,
+  );
+});
+
+test("but a small number that IS the identity still distinguishes", () => {
+  // "Control 3-7" and "Control 5-2" are different controls, and stripping
+  // their numbers would make them identical.
+  assert.ok(similarity("Control 3-7", "Control 5-2") < 0.75);
+  assert.ok(similarity("Step 2", "Step 7") < 0.85);
+});
+
+test("an exact match still outranks one that needed the allowance", () => {
+  const exact = similarity("like this video along with 19,024 other people",
+                           "like this video along with 19,024 other people");
+  const allowed = similarity("like this video along with 19,024 other people",
+                             "like this video along with 21,330 other people");
+  assert.equal(exact, 1);
+  assert.ok(allowed < exact);
+});

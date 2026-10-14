@@ -34,9 +34,8 @@ Built. Extension bundle: apps/extension/dist
   Reload it at chrome://extensions, and publish a FRESH link - a published
   IntentLink keeps the policy it was compiled with.
 
-  This builds TypeScript only. The Python agent reloads itself while
-  \`try-it.sh serve\` is running, but if you started it some other way,
-  restart it.
+  Both services reload themselves while \`try-it.sh serve\` is running.
+  Only the extension needs reloading by hand.
 EOF
 }
 
@@ -187,9 +186,14 @@ EOF
   # because the failure shows up as an unexplained block mid-demo.
   trap 'kill "${AGENT_PID:-}" 2>/dev/null || true' EXIT INT TERM
 
+  # --watch, for the same reason the agent has --reload. The API imports the
+  # compiler and holds it in memory from startup, so `build` alone leaves the
+  # running process compiling workflows with the previous version - a trap
+  # that cost a full round of debugging a bug that was already fixed.
   INTENTLINK_TOKEN_SECRET="$secret" \
   INTENTLINK_AGENT_URL="http://127.0.0.1:8081" \
-  PORT=8080 node --env-file-if-exists="$ROOT/.env" apps/api/dist/server.js
+  PORT=8080 node --watch-path=apps/api/dist --watch-path=packages \
+    --env-file-if-exists="$ROOT/.env" apps/api/dist/server.js
 }
 
 cmd_extension() {

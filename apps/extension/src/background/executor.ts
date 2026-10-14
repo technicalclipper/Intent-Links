@@ -543,10 +543,34 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
        * just permitted.
        */
       const chosen = observation.candidates.find((c) => c.handle === reply.instruction!.handle);
-      const instruction = {
-        ...reply.instruction,
-        ...(chosen?.targetHash ? { targetHash: chosen.targetHash } : {}),
-      };
+
+      /*
+       * No candidate means the agent named a control that is not on this
+       * page. Acting anyway sent a hash the token was not bound to, and the
+       * run reported "wrong_target" - which describes neither the real
+       * problem nor anything the receiver can act on.
+       */
+      if (!chosen) {
+        await note({
+          verdict: "failed",
+          stepId: reply.instruction.stepId,
+          verb: reply.instruction.verb,
+          detail: `“${reply.instruction.targetName ?? "that control"}” is not on this page`,
+        });
+        lastResult = {
+          stepId: reply.instruction.stepId,
+          status: "failed",
+          reason: "the chosen control is not on this page",
+        };
+        stepIndex++;
+        if (stepIndex >= link.intent.steps.length) {
+          await patch({ status: "done" });
+          return;
+        }
+        continue;
+      }
+
+      const instruction = { ...reply.instruction, targetHash: chosen.targetHash };
 
       const result = await authorizeAndAct(
         tabId,
@@ -554,7 +578,7 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
         executionId,
         instruction,
         reply.token,
-        chosen?.frameId ?? observation.frameId ?? 0,
+        chosen.frameId,
       );
       lastResult = { stepId: instruction.stepId, ...result };
       const signature = `${instruction.stepId}:${result.reason ?? ""}`;

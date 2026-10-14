@@ -204,6 +204,33 @@ export function fastPathCandidate(
   return best;
 }
 
+/**
+ * The text a fill or select should enter.
+ *
+ * Compiled arguments are named for what they mean - query, summary, topic,
+ * name - and the executor was looking for one literally called "value". So a
+ * search step carrying {query: "selena gomez"} passed nothing along, and the
+ * fill failed for want of a value it was holding the whole time.
+ *
+ * With one string argument there is no ambiguity. With several, prefer the
+ * one that names the text being entered.
+ */
+const TEXT_ARG_NAMES = ["value", "query", "text", "content", "summary", "topic", "title", "name"];
+
+export function valueFor(args: Record<string, string | number | boolean>): string | undefined {
+  const strings = Object.entries(args).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string",
+  );
+  if (strings.length === 0) return undefined;
+  if (strings.length === 1) return strings[0]![1];
+
+  for (const preferred of TEXT_ARG_NAMES) {
+    const hit = strings.find(([name]) => name.toLowerCase() === preferred);
+    if (hit) return hit[1];
+  }
+  return strings[0]![1];
+}
+
 /** The step's own action, with the receiver's parameters filled in. */
 function actionFor(
   step: CompiledStep,
@@ -378,7 +405,7 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
             handle: certain.handle,
             verb,
             ...(object !== undefined ? { object } : {}),
-            ...(typeof args["value"] === "string" ? { value: args["value"] } : {}),
+            ...(valueFor(args) !== undefined ? { value: valueFor(args)! } : {}),
             targetHash: certain.targetHash,
             targetName: certain.descriptor.name,
             stepId: step.id,

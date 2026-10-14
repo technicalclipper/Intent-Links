@@ -87,6 +87,21 @@ def perform_action(
     verb = str(declared.get("verb") or verb)
     args = {**args, **(declared.get("args") or {})}
 
+    # Compiled arguments are named for what they mean - query, summary, topic -
+    # so a step carrying {"query": "selena gomez"} has the text to enter even
+    # when nothing is called "value". Looking only for "value" meant a fill
+    # arrived with nothing to type.
+    if value is None:
+        preferred = ("value", "query", "text", "content", "summary", "topic", "title", "name")
+        strings = {k: v for k, v in args.items() if isinstance(v, str)}
+        if len(strings) == 1:
+            value = next(iter(strings.values()))
+        else:
+            for name in preferred:
+                if name in strings:
+                    value = strings[name]
+                    break
+
     token = ctx.state.get(TOKEN_KEY)
     if not token:
         # Reaching here without a token means the gate did not run, which would

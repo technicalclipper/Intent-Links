@@ -247,9 +247,21 @@ export function toIntentLink(raw: RawCompilation, ctx: ValidationContext): Inten
     const interactions = cited.filter(
       (e) => e.target && e.type !== "navigate" && e.type !== "wait",
     );
-    if (interactions.length > 1) {
+
+    /*
+     * Events on the SAME control are one interaction.
+     *
+     * Clicking into a field and then typing in it is two recorded events and
+     * one thing a person did, and splitting them produced a step whose only
+     * job was to put the cursor somewhere - which then failed for having no
+     * value to type. Two events on two different controls remain two steps.
+     */
+    const distinctTargets = new Set(
+      interactions.map((e) => `${e.target!.role}\u0000${e.target!.name}`),
+    );
+    if (distinctTargets.size > 1) {
       problems.push(
-        `step ${step.id}: cites ${interactions.length} separate interactions (${interactions
+        `step ${step.id}: cites ${distinctTargets.size} separate controls (${interactions
           .map((e) => `${e.type} ${JSON.stringify(e.target?.name ?? "")}`)
           .join(", ")}). Each one is its own step; only the first would ever be performed.`,
       );

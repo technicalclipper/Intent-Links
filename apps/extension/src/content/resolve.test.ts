@@ -14,7 +14,7 @@ import {
 import { appIdentity as appIdentityFor, routeTemplate } from "./capture.js";
 import { composedParent, composedTarget } from "./dom.js";
 import { operationFor } from "./perform.js";
-import { fastPathCandidate } from "../background/executor.js";
+import { fastPathCandidate, valueFor } from "../background/executor.js";
 
 function mount(html: string): Document {
   const { document } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
@@ -443,4 +443,20 @@ test("a confident, unambiguous match does not need the model", () => {
   assert.ok(certain(0.84, 0.4), "so does a good one");
   assert.equal(certain(0.6), undefined, "a weak match asks");
   assert.equal(certain(0.94, 0.9), undefined, "a close second asks");
+});
+
+test("the text to type comes from whatever the argument is called", () => {
+  // A search step carries {query: "selena gomez"}. Looking only for an
+  // argument named "value" meant the fill arrived with nothing to type, and
+  // the step failed holding the text the whole time.
+  assert.equal(valueFor({ query: "selena gomez" }), "selena gomez");
+  assert.equal(valueFor({ topic: "Payments degraded" }), "Payments degraded");
+  assert.equal(valueFor({}), undefined);
+
+  // Several strings: prefer the one that names the text being entered.
+  assert.equal(valueFor({ project: "INC", summary: "Sev2: payments" }), "Sev2: payments");
+  assert.equal(valueFor({ board: "INC", query: "gowri" }), "gowri");
+
+  // Booleans and numbers are state, not text.
+  assert.equal(valueFor({ enabled: true, amount: 5000 }), undefined);
 });

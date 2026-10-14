@@ -139,7 +139,13 @@ export function performAction(
 
       case "fill": {
         if (request.value === undefined) {
-          return { ok: false, reason: "fill requires a value" };
+          // A fill with nothing to type is a focus. Recordings routinely
+          // contain one - clicking into a field before typing is a separate
+          // event - and refusing it stalled a step that only had to put the
+          // cursor somewhere.
+          (el as HTMLElement).focus();
+          (el as HTMLElement).click();
+          break;
         }
         if (el.getAttribute("contenteditable") === "true") {
           (el as HTMLElement).focus();

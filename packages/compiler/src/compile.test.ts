@@ -332,7 +332,7 @@ test("a step citing several interactions is rejected", () => {
   // complete, and the theme never changed.
   const raw = clone();
   raw.steps[0]!.sourceEvents = [1, 2, 3];
-  const problems = expectProblem(raw, /cites 3 separate interactions/);
+  const problems = expectProblem(raw, /cites 3 separate controls/);
   assert.ok(problems.some((p) => /only the first would ever be performed/.test(p)));
 });
 
@@ -342,4 +342,20 @@ test("navigations alongside one interaction are fine", () => {
   // s1 already cites a navigate plus one click, which is the shape in question.
   const intent = toIntentLink(raw, { ...CTX, trace });
   assert.ok(intent.steps[0]!.hints.length > 0);
+});
+
+test("clicking into a field and typing in it is one step", () => {
+  // Two recorded events, one thing a person did. Splitting them produced a
+  // step whose only job was to put the cursor somewhere, which then failed
+  // for having no value to type.
+  const raw = clone();
+  const step = raw.steps.find((s) => s.id === "s2")!;
+  step.sourceEvents = [2, 2]; // same control, cited twice
+  assert.doesNotThrow(() => toIntentLink(raw, { ...CTX, trace }));
+});
+
+test("two different controls are still two steps", () => {
+  const raw = clone();
+  raw.steps[0]!.sourceEvents = [1, 2]; // "Create channel" then "Channel name"
+  expectProblem(raw, /2 separate controls/);
 });

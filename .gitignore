@@ -19,3 +19,6 @@ __pycache__/
 # extension build artifacts
 apps/extension/dist/
 apps/extension/dist-test/
+
+# local dev store
+.intentlink-dev.json

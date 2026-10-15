@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { verifyChain } from "@intentlink/policy";
-import { MemoryStore } from "./store.js";
+import { rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { FileStore, MemoryStore } from "./store.js";
 
 /**
  * These test the CONTRACT, not the memory implementation, so the Firestore
@@ -85,4 +88,47 @@ test("a token is spendable once, and a rejection does not burn it", async () => 
   assert.equal(await store.tokens.consume("jti-1", 9999999999, 1), true);
   assert.equal(await store.tokens.consume("jti-1", 9999999999, 1), false);
   assert.equal(await store.tokens.consume("jti-2", 9999999999, 1), true);
+});
+
+test("published links survive a restart", async () => {
+  // The API runs under --watch, so every build restarts it. With a purely
+  // in-memory store a published link stopped existing mid-run and the
+  // receiver got "policy service refused the request (404)" with no hint
+  // that the cause was a file save.
+  const path = `${tmpdir()}/intentlink-store-${randomUUID()}.json`;
+  const policy = {
+    id: "11111111-1111-4111-8111-111111111111",
+    intentId: "22222222-2222-4222-8222-222222222222",
+    version: 1,
+    scope: { origins: [], paths: [], resources: [], dataExclusions: [] },
+    allowed: [], denied: [], approvalRequired: [],
+    limits: { numeric: [], maxActions: 200, maxExecutions: 1, rateLimit: 60, maxNavigationHops: 5 },
+    timeWindows: [], expiresAt: "2099-01-01T00:00:00.000Z",
+    receivers: [], destructiveVerbs: [], allowTypedLiterals: true, mode: "live" as const,
+  };
+
+  try {
+    const first = await FileStore.open(path);
+    await first.putPolicy(policy);
+    await first.pin("exec-1", "a".repeat(64));
+    // Writes are serialised behind a promise chain; let it settle.
+    await new Promise((r) => setTimeout(r, 50));
+
+    const second = await FileStore.open(path);
+    assert.equal((await second.getPolicy(policy.id))?.id, policy.id);
+    assert.equal(await second.getPin("exec-1"), "a".repeat(64));
+  } finally {
+    await rm(path, { force: true });
+  }
+});
+
+test("an unreadable store file starts empty rather than refusing to boot", async () => {
+  const path = `${tmpdir()}/intentlink-bad-${randomUUID()}.json`;
+  await writeFile(path, "{ not json", "utf8");
+  try {
+    const store = await FileStore.open(path);
+    assert.equal(await store.getPolicy("anything"), undefined);
+  } finally {
+    await rm(path, { force: true });
+  }
 });

@@ -16,6 +16,8 @@ import type { ElementDescriptor, PageContext, TraceEvent } from "@intentlink/sch
 
 export type ContentMessage =
   | { type: "capture:event"; event: Omit<TraceEvent, "seq"> }
+  /** A batch recovered from the buffer, typically after a navigation. */
+  | { type: "capture:events"; events: Array<Omit<TraceEvent, "seq">> }
   | { type: "capture:page"; page: PageContext }
   | { type: "resolve:result"; requestId: string; result: ResolveResult }
   | { type: "act:result"; requestId: string; result: ActResult }

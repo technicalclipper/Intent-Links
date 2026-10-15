@@ -325,16 +325,77 @@ function currentValue(el: Element): string | undefined {
 
 /* --------------------------------- wiring --------------------------------- */
 
+/*
+ * Events are written to sessionStorage first, then sent.
+ *
+ * chrome.runtime.sendMessage is async, and the events most worth keeping are
+ * the ones that NAVIGATE - pressing Enter in a search box, clicking a result.
+ * The page tore down before the message landed, so a recording of "search for
+ * a channel and open a video" kept the typing and lost both the submit and
+ * the click that followed it. The receiver then had a workflow that typed a
+ * query and stopped.
+ *
+ * sessionStorage is synchronous, so it is already written when the page goes
+ * away, and it survives navigation within the same tab and origin. The next
+ * page's content script drains whatever is still there.
+ */
+const BUFFER_KEY = "intentlink:pending";
+
+function readBuffer(): Array<Omit<TraceEvent, "seq">> {
+  try {
+    const raw = sessionStorage.getItem(BUFFER_KEY);
+    return raw ? (JSON.parse(raw) as Array<Omit<TraceEvent, "seq">>) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeBuffer(events: Array<Omit<TraceEvent, "seq">>): void {
+  try {
+    sessionStorage.setItem(BUFFER_KEY, JSON.stringify(events));
+  } catch {
+    // Storage disabled or full. The send below is then the only path, which
+    // is what the behaviour was before.
+  }
+}
+
+let flushing = false;
+
+async function flush(): Promise<void> {
+  if (flushing) return;
+  flushing = true;
+  try {
+    const pending = readBuffer();
+    if (pending.length === 0) return;
+    await chrome.runtime.sendMessage({ type: "capture:events", events: pending });
+    // Only drop what was sent: an event captured while this was in flight
+    // stays queued.
+    writeBuffer(readBuffer().slice(pending.length));
+  } catch {
+    // Worker asleep or restarting. The buffer keeps them for the next attempt.
+  } finally {
+    flushing = false;
+  }
+}
+
 const send = (message: ContentMessage): void => {
-  // The worker may be asleep; a dropped capture event is worse than a retry,
-  // but MV3 wakes the worker for a message, so a plain send is enough.
+  if (message.type === "capture:event") {
+    writeBuffer([...readBuffer(), message.event]);
+    void flush();
+    return;
+  }
   chrome.runtime.sendMessage(message).catch(() => {
-    /* worker restarting; the event is lost and that is acceptable for capture */
+    /* worker restarting; non-capture messages are retried by their caller */
   });
 };
 
 export function installRecorder(): Recorder {
   const recorder = new Recorder((event) => send({ type: "capture:event", event }));
+
+  // Anything the previous page could not hand over before it went away.
+  void flush();
+  // And one more attempt as this page leaves, for events captured just now.
+  window.addEventListener("pagehide", () => void flush());
 
   // SPA navigation: patched history plus popstate covers both directions.
   const notify = () => recorder.noteNavigation();

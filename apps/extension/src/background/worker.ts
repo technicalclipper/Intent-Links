@@ -219,6 +219,12 @@ chrome.runtime.onMessage.addListener((message: ContentMessage | PanelMessage, _s
         await appendEvent(message.event);
         return respond({ ok: true });
 
+      case "capture:events":
+        // Appended in order through the same lock, so a batch recovered after
+        // a navigation keeps its place in the sequence.
+        for (const event of message.events) await appendEvent(event);
+        return respond({ ok: true });
+
       case "content:ready": {
         // A page - or an iframe within it - that loads mid-recording has to
         // start listening on its own; the worker's broadcast went out before

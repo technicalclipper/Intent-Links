@@ -14,6 +14,7 @@
 import type { Policy } from "@intentlink/schema";
 import type { AuditEntry, TokenStore } from "@intentlink/policy";
 import { MemoryTokenStore, appendEntry } from "@intentlink/policy";
+import { readFile, writeFile } from "node:fs/promises";
 import type { PublishedLink } from "./publish.js";
 
 /** Budget counters the engine needs for its per-execution limits. */
@@ -55,9 +56,9 @@ export interface Store {
 export class MemoryStore implements Store {
   readonly tokens: TokenStore = new MemoryTokenStore();
 
-  private readonly policies = new Map<string, Policy>();
-  private readonly links = new Map<string, PublishedLink>();
-  private readonly pins = new Map<string, string>();
+  protected readonly policies = new Map<string, Policy>();
+  protected readonly links = new Map<string, PublishedLink>();
+  protected readonly pins = new Map<string, string>();
   private readonly audit = new Map<string, AuditEntry[]>();
   private readonly actions = new Map<string, number[]>();
 
@@ -103,6 +104,27 @@ export class MemoryStore implements Store {
     return this.summarize(this.actions.get(executionId) ?? [], atMs);
   }
 
+  /**
+   * What is worth keeping across a restart.
+   *
+   * Policies, links and pins only. Audit entries and action counts belong to
+   * a run in flight, and a run does not survive the service restarting
+   * anyway.
+   */
+  protected snapshot(): Snapshot {
+    return {
+      policies: [...this.policies.values()],
+      links: [...this.links.values()],
+      pins: [...this.pins.entries()],
+    };
+  }
+
+  protected hydrate(snapshot: Snapshot): void {
+    for (const policy of snapshot.policies ?? []) this.policies.set(policy.id, policy);
+    for (const link of snapshot.links ?? []) this.links.set(link.id, link);
+    for (const [id, hash] of snapshot.pins ?? []) this.pins.set(id, hash);
+  }
+
   /** The rolling window is derived, so nothing has to be swept. */
   private summarize(times: number[], atMs: number): Counters {
     const cutoff = atMs - 60_000;
@@ -111,6 +133,71 @@ export class MemoryStore implements Store {
       actionsInLastMinute: times.filter((t) => t >= cutoff).length,
     };
   }
+}
+
+/* ----------------------------------- file ---------------------------------- */
+
+/**
+ * MemoryStore that survives a restart, for local development.
+ *
+ * The API runs under --watch so a fix is live the moment it is built, and
+ * every restart emptied the store: a published link stopped existing
+ * mid-run, and the receiver got "policy service refused the request (404)"
+ * with no hint that the cause was a file save. Durable storage in production
+ * is Firestore; this is the same need on a laptop, without credentials.
+ *
+ * Writes are whole-file and synchronous-ish on purpose. The dev dataset is a
+ * handful of links, and a crash-safe incremental format would be more
+ * machinery than the problem deserves.
+ */
+export class FileStore extends MemoryStore {
+  private writing: Promise<void> = Promise.resolve();
+
+  private constructor(private readonly path: string) {
+    super();
+  }
+
+  static async open(path: string): Promise<FileStore> {
+    const store = new FileStore(path);
+    try {
+      const raw = await readFile(path, "utf8");
+      store.hydrate(JSON.parse(raw) as Snapshot);
+    } catch {
+      // No file yet, or an unreadable one. Starting empty is correct either
+      // way; losing a dev link is not worth refusing to boot over.
+    }
+    return store;
+  }
+
+  override async putPolicy(policy: Policy): Promise<void> {
+    await super.putPolicy(policy);
+    this.persist();
+  }
+  override async putLink(link: PublishedLink): Promise<void> {
+    await super.putLink(link);
+    this.persist();
+  }
+  override async pin(executionId: string, policyHash: string): Promise<void> {
+    await super.pin(executionId, policyHash);
+    this.persist();
+  }
+
+  /** Serialised, so two saves in the same tick cannot interleave. */
+  private persist(): void {
+    this.writing = this.writing.then(async () => {
+      try {
+        await writeFile(this.path, JSON.stringify(this.snapshot(), null, 2), "utf8");
+      } catch {
+        // A dev convenience; an unwritable path is not worth failing a publish.
+      }
+    });
+  }
+}
+
+interface Snapshot {
+  policies?: Policy[];
+  links?: PublishedLink[];
+  pins?: Array<[string, string]>;
 }
 
 /* -------------------------------- firestore ------------------------------- */
@@ -282,5 +369,8 @@ export async function createStore(): Promise<Store> {
   if (process.env.INTENTLINK_STORE === "firestore") {
     return FirestoreStore.create();
   }
-  return new MemoryStore();
+  // Local default: survive the restarts --watch causes. Pure memory is for
+  // tests, which want a clean store per run.
+  const path = process.env.INTENTLINK_STORE_FILE ?? ".intentlink-dev.json";
+  return FileStore.open(path);
 }

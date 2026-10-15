@@ -94,6 +94,8 @@ interface CompiledStep {
   title: string;
   app: string;
   hints: unknown[];
+  /** Steps that must have succeeded before this one is attempted. */
+  dependsOn: string[];
   condition?: string;
   action: {
     verb: string;
@@ -332,6 +334,9 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
    */
   const performed = new Set<string>();
 
+  /** Steps not attempted because something they needed did not happen. */
+  const skipped = new Set<string>();
+
   /**
    * Consecutive failures of the same step, to stop a loop that is going
    * nowhere.
@@ -352,6 +357,35 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
     if (current.status === "aborted") return;
 
     const step = link.intent.steps[Math.min(stepIndex, link.intent.steps.length - 1)];
+
+    /*
+     * A step whose prerequisites failed must not run.
+     *
+     * dependsOn was recorded and then ignored. A Gmail run could not set the
+     * recipient - the control was not there - and went on to press Send
+     * anyway. Nothing was sent only because Gmail refused an email with no
+     * recipient; the executor had no opinion about it either way, which is
+     * not a property to rely on when the next workflow transfers something.
+     */
+    if (step && step.dependsOn.some((id) => !performed.has(id))) {
+      const missing = step.dependsOn.filter((id) => !performed.has(id));
+      const names = missing.map(
+        (id) => link.intent.steps.find((st) => st.id === id)?.title ?? id,
+      );
+      await note({
+        verdict: "failed",
+        stepId: step.id,
+        detail: `skipped: it needs ${names.join(" and ")}, which did not happen`,
+      });
+      skipped.add(step.id);
+      lastResult = { stepId: step.id, status: "skipped" };
+      stepIndex++;
+      if (stepIndex >= link.intent.steps.length) {
+        await patch({ status: "done" });
+        return;
+      }
+      continue;
+    }
 
     /*
      * Resolution used to be invisible. A run that found nothing reported
@@ -507,7 +541,9 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
       await note({
         verdict: required.length ? "failed" : "info",
         detail: required.length
-          ? `Finished with ${required.length} step(s) not performed: ${required.map((st) => st.title).join(", ")}`
+          ? `Finished with ${required.length} step(s) not performed: ${required
+              .map((st) => (skipped.has(st.id) ? `${st.title} (skipped)` : st.title))
+              .join(", ")}`
           : reply.narration || "Finished.",
       });
       await patch({ status: "done" });

@@ -189,6 +189,17 @@ export class Recorder {
     this.active = true;
     document.addEventListener("click", this.onClick, true);
     document.addEventListener("change", this.onChange, true);
+    /*
+     * `input` as well as `change`, because contenteditable never fires
+     * `change` at all. Gmail's message body and recipient field are
+     * contenteditable, so a whole email could be typed and the recording kept
+     * only the clicks around it - the receiver then had a step for clicking an
+     * autocomplete suggestion that does not exist until something is typed.
+     *
+     * It fires per keystroke, which is fine: only the latest value is held,
+     * and it is committed on blur or Enter like any other field.
+     */
+    document.addEventListener("input", this.onInput, true);
     document.addEventListener("focusout", this.onFocusOut, true);
     document.addEventListener("keydown", this.onKeyDown, true);
     this.noteNavigation();
@@ -199,6 +210,7 @@ export class Recorder {
     this.active = false;
     document.removeEventListener("click", this.onClick, true);
     document.removeEventListener("change", this.onChange, true);
+    document.removeEventListener("input", this.onInput, true);
     document.removeEventListener("focusout", this.onFocusOut, true);
     document.removeEventListener("keydown", this.onKeyDown, true);
   }
@@ -261,6 +273,14 @@ export class Recorder {
       return;
     }
     this.record(el, type, currentValue(el));
+  };
+
+  private readonly onInput = (ev: Event): void => {
+    if (!this.active || !ev.isTrusted) return;
+    const el = composedTarget(ev);
+    if (!el || opFor(el) !== "fill") return;
+    // Held, not emitted: a field edited in several bursts is one event.
+    this.pending.set(el, currentValue(el) ?? "");
   };
 
   private readonly onFocusOut = (ev: Event): void => {

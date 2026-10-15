@@ -476,3 +476,21 @@ test("a subdomain that names a product is not collapsed away", () => {
   assert.equal(appIdentityFor("globex.slack.com"), "slack");
   assert.equal(appIdentityFor("studio.youtube.com"), "youtube");
 });
+
+test("typing is captured in contenteditable, which never fires change", () => {
+  // Gmail's message body and recipient field are contenteditable. Listening
+  // only for `change` meant a whole email could be typed and the recording
+  // kept only the clicks around it - so the receiver had a step for clicking
+  // an autocomplete suggestion that does not exist until something is typed.
+  const doc = mount(`
+    <div id="body" role="textbox" contenteditable="true">hello there</div>
+    <input id="plain" type="text" value="typed">
+    <textarea id="area">notes</textarea>
+  `);
+  const q = (sel: string) => doc.querySelector(sel) as unknown as Element;
+
+  // Each is a field the recorder must treat as fillable.
+  assert.equal(operationFor(q("#body"), "set_body", "hello there"), "fill");
+  assert.equal(operationFor(q("#plain"), "set_name", "typed"), "fill");
+  assert.equal(operationFor(q("#area"), "set_notes", "notes"), "fill");
+});

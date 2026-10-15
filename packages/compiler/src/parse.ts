@@ -345,10 +345,15 @@ export function toIntentLink(raw: RawCompilation, ctx: ValidationContext): Inten
         arg.kind === "param" ? { param: arg.value } : { literal: coerce(arg.value) };
     }
 
+    const firstPage = s.sourceEvents
+      .map((seq) => ctx.trace.events.find((e) => e.seq === seq))
+      .find((e) => e?.target)?.page;
+
     const step: Step = {
       id: s.id,
       title: s.title,
       app: s.app,
+      ...(firstPage ? { page: firstPage } : {}),
       action: { verb: s.verb, args },
       hints: hintsFor(ctx.trace, s.sourceEvents),
       learnedHints: [],

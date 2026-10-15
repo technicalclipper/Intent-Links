@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ElementDescriptor } from "./descriptor.js";
+import { ElementDescriptor, PageContext } from "./descriptor.js";
 
 /**
  * IntentLink — the portable artifact.
@@ -86,6 +86,16 @@ export const Step = z
   .object({
     id: z.string().max(64),
     title: z.string().max(256),
+    /**
+     * Where this step was recorded.
+     *
+     * Derived from the events it cites, not from the model. The receiver has
+     * to start on the page the first step happens on, and app identity alone
+     * cannot say which that is: a recording that began with a Google search
+     * and ended in Gmail has both pages under one app name, and starting at
+     * the first of them opened a search page with no Compose button on it.
+     */
+    page: PageContext.optional(),
     /** Why this step exists, in human terms. Often from narration. */
     intent: z.string().max(2048).optional(),
     app: z.string().max(64),

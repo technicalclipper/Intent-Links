@@ -460,3 +460,19 @@ test("the text to type comes from whatever the argument is called", () => {
   // Booleans and numbers are state, not text.
   assert.equal(valueFor({ enabled: true, amount: 5000 }), undefined);
 });
+
+test("a subdomain that names a product is not collapsed away", () => {
+  // A recording that began with a Google search and ended in Gmail had both
+  // pages under the app name "google", so the receiver was sent to the search
+  // page and found no Compose button.
+  assert.equal(appIdentityFor("mail.google.com"), "mail");
+  assert.equal(appIdentityFor("drive.google.com"), "drive");
+  assert.equal(appIdentityFor("calendar.google.com"), "calendar");
+  assert.equal(appIdentityFor("www.google.com"), "google");
+  assert.equal(appIdentityFor("console.cloud.google.com"), "gcp-console");
+
+  // Tenants are still collapsed, which is the case the rule exists for.
+  assert.equal(appIdentityFor("acme.slack.com"), "slack");
+  assert.equal(appIdentityFor("globex.slack.com"), "slack");
+  assert.equal(appIdentityFor("studio.youtube.com"), "youtube");
+});

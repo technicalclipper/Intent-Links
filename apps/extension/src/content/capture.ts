@@ -27,8 +27,22 @@ export function appIdentity(host: string): string {
   if (h === "console.cloud.google.com") return "gcp-console";
   if (h.endsWith(".atlassian.net") || h.endsWith(".atlassian.com")) return "jira";
 
-  // The registrable label, so acme.slack.com and globex.slack.com are one app,
-  // and studio.youtube.com and www.youtube.com are both "youtube".
+  /*
+   * On some hosts the subdomain IS the product, not the tenant.
+   *
+   * Collapsing to the registrable label makes acme.slack.com and
+   * globex.slack.com one app, which is right. It also made mail.google.com
+   * and www.google.com one app, which is not: a recording that began with a
+   * Google search and ended in Gmail looked like one application throughout.
+   */
+  if (h.endsWith(".google.com")) {
+    const product = h.slice(0, -".google.com".length).split(".").pop();
+    if (product && product !== "www") return product;
+  }
+
+  // Otherwise the registrable label, so acme.slack.com and globex.slack.com
+  // are one app, and studio.youtube.com and www.youtube.com are both
+  // "youtube".
   const parts = h.split(".").filter(Boolean);
   if (parts.length < 2) return h;
 

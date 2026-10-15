@@ -81,16 +81,24 @@ function linkId(): string {
  * recorded page belonging to that app.
  */
 function startUrlFor(trace: Trace, intent: IntentLink): string | undefined {
-  const app = intent.steps[0]?.app;
+  /*
+   * The first STEP's own page, which the compiler took from the event it was
+   * built on. Not the first event in the trace, and not the first page whose
+   * app matches - a recording that began with a Google search and ended in
+   * Gmail has both under the app name "google", so matching on that opened a
+   * search page with no Compose button on it.
+   */
+  const recorded = intent.steps[0]?.page;
+  if (recorded && /^https?:/.test(recorded.origin)) {
+    return `${recorded.origin}${recorded.path}`;
+  }
 
-  const usable = trace.events.filter((e) => {
-    if (!/^https?:/.test(e.page.origin)) return false;
-    // Browser-internal pages are not somewhere a person did anything.
-    return !/\b(warmup|newtab|blank)\b/.test(e.page.path);
-  });
-
-  const inApp = app ? usable.find((e) => e.page.app === app) : undefined;
-  const chosen = inApp ?? usable[0];
+  // Older links, and anything the compiler could not place: fall back to the
+  // first real page in the recording, skipping what the browser did on its own.
+  const usable = trace.events.filter(
+    (e) => /^https?:/.test(e.page.origin) && !/\b(warmup|newtab|blank)\b/.test(e.page.path),
+  );
+  const chosen = usable[0];
   return chosen ? `${chosen.page.origin}${chosen.page.path}` : undefined;
 }
 

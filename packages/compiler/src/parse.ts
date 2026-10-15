@@ -345,9 +345,7 @@ export function toIntentLink(raw: RawCompilation, ctx: ValidationContext): Inten
         arg.kind === "param" ? { param: arg.value } : { literal: coerce(arg.value) };
     }
 
-    const submits = s.sourceEvents.some((seq) =>
-      ctx.trace.events.some((e) => e.seq === seq && e.type === "submit"),
-    );
+    const submits = stepCommitsField(ctx.trace, s.sourceEvents);
 
     const firstPage = s.sourceEvents
       .map((seq) => ctx.trace.events.find((e) => e.seq === seq))
@@ -397,6 +395,46 @@ export function toIntentLink(raw: RawCompilation, ctx: ValidationContext): Inten
   // Final gate: the schema is the contract every other track integrates
   // against, so nothing leaves here that it would reject.
   return IntentLink.parse(intent);
+}
+
+/**
+ * Did this step's interaction end by committing the field?
+ *
+ * Not simply "does the step cite a submit event". The model decides which
+ * events a step is built from, and it routinely leaves the Enter out - a real
+ * run split a search into a focus step and a fill step and attached the
+ * submit to neither, so the query was typed, never sent, and the next step
+ * matched an autocomplete suggestion instead of the control it wanted.
+ *
+ * The trace knows regardless: a submit on the SAME control, within the next
+ * few events, is the commit that belongs to this interaction. Bounded to a
+ * few events so an unrelated submit later in the recording is not swept in.
+ */
+function stepCommitsField(trace: Trace, sourceEvents: number[]): boolean {
+  const cited = new Set(sourceEvents);
+  const key = (e: { target?: { role: string; name: string } }) =>
+    e.target ? `${e.target.role}\u0000${e.target.name}` : null;
+
+  /*
+   * Only a step that ENTERS something commits. A step that merely clicks into
+   * a field is putting the cursor somewhere, and pressing Enter there would
+   * submit a search the user had not typed yet - which is what happened when
+   * this looked at every cited control rather than the filled ones.
+   */
+  const entering = trace.events.filter(
+    (e) => cited.has(e.seq) && (e.type === "fill" || e.type === "select"),
+  );
+  const controls = new Set(entering.map(key).filter(Boolean) as string[]);
+  if (controls.size === 0) return false;
+
+  const lastCited = Math.max(...sourceEvents);
+  return trace.events.some(
+    (e) =>
+      e.type === "submit" &&
+      e.seq >= lastCited &&
+      e.seq <= lastCited + 3 &&
+      controls.has(key(e) ?? ""),
+  );
 }
 
 /**

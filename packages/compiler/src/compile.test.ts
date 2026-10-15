@@ -371,3 +371,43 @@ test("a step that ends in Enter records that it commits the field", () => {
   const plain = toIntentLink(raw, { ...CTX, trace });
   assert.equal(plain.steps.find((s) => s.id === "s2")!.submits, false);
 });
+
+test("the submit is found in the trace even when no step cites it", () => {
+  // The model decides which events a step is built from and routinely leaves
+  // the Enter out: a real run split a search into a focus step and a fill
+  // step and attached the submit to neither, so the query was typed, never
+  // sent, and the next step matched an autocomplete suggestion.
+  const page = { app: "youtube", origin: "https://www.youtube.com", path: "/" };
+  const box = { role: "combobox", name: "Search" };
+  const searchTrace = Trace.parse({
+    traceId: "9f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f",
+    createdBy: "me", createdAt: "2026-10-15T00:00:00.000Z",
+    sessions: 1, durationMs: 9000, apps: ["youtube"],
+    events: [
+      { seq: 0, t: 0, type: "navigate", page, redacted: false },
+      { seq: 1, t: 2000, type: "click", page, redacted: false, target: box },
+      { seq: 2, t: 4000, type: "fill", page, redacted: false, target: box, value: "bandai namco" },
+      { seq: 3, t: 5000, type: "submit", page, redacted: false, target: box },
+    ],
+  });
+
+  const compiled: RawCompilation = {
+    title: "Search", goal: "search for a channel", outcomes: [],
+    params: [{ name: "query", type: "string", required: true,
+               recordedExample: "bandai namco", rationale: "the thing searched for" }],
+    steps: [
+      { id: "focus", title: "Focus the box", app: "youtube", verb: "focus_field",
+        args: [], dependsOn: [], sourceEvents: [1] },
+      { id: "search", title: "Search", app: "youtube", verb: "search",
+        args: [{ name: "query", kind: "param", value: "query" }],
+        dependsOn: ["focus"], sourceEvents: [2] },
+    ],
+  };
+
+  const intent = toIntentLink(compiled, { ...CTX, trace: searchTrace });
+
+  assert.equal(intent.steps.find((s) => s.id === "search")!.submits, true);
+  // Clicking into a field is putting the cursor somewhere. Pressing Enter
+  // there would submit a search nobody had typed yet.
+  assert.equal(intent.steps.find((s) => s.id === "focus")!.submits, false);
+});

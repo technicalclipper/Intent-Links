@@ -94,6 +94,8 @@ interface CompiledStep {
   title: string;
   app: string;
   hints: unknown[];
+  /** The recording committed the field, so this step must too. */
+  submits?: boolean;
   /** Steps that must have succeeded before this one is attempted. */
   dependsOn: string[];
   condition?: string;
@@ -260,6 +262,7 @@ interface TurnResponse {
     verb: string;
     object?: string;
     value?: string;
+    submit?: boolean;
     targetHash: string;
     targetName?: string;
     stepId: string;
@@ -440,6 +443,7 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
             verb,
             ...(object !== undefined ? { object } : {}),
             ...(valueFor(args) !== undefined ? { value: valueFor(args)! } : {}),
+            ...(step.submits ? { submit: true } : {}),
             targetHash: certain.targetHash,
             targetName: certain.descriptor.name,
             stepId: step.id,
@@ -647,7 +651,11 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
         continue;
       }
 
-      const instruction = { ...reply.instruction, targetHash: chosen.targetHash };
+      const instruction = {
+        ...reply.instruction,
+        targetHash: chosen.targetHash,
+        ...(step?.submits ? { submit: true } : {}),
+      };
 
       const result = await authorizeAndAct(
         tabId,
@@ -828,7 +836,7 @@ async function authorizeAndAct(
   tabId: number,
   api: string,
   executionId: string,
-  instruction: NonNullable<TurnResponse["instruction"]>,
+  instruction: NonNullable<TurnResponse["instruction"]> & { submit?: boolean },
   token: string,
   frameId: number,
 ): Promise<{ status: string; reason?: string }> {
@@ -874,6 +882,7 @@ async function authorizeAndAct(
       verb: instruction.verb,
       op: opFor(instruction.verb, instruction.value),
       ...(instruction.value !== undefined ? { value: instruction.value } : {}),
+      ...(instruction.submit ? { submit: true } : {}),
       targetHash: instruction.targetHash,
     },
   })) as ActResult | undefined;

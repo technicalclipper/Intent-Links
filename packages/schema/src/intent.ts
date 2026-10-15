@@ -116,6 +116,17 @@ export const Step = z
     pre: z.array(Assertion).max(8).default([]),
     post: z.array(Assertion).max(8).default([]),
 
+    /**
+     * The recorded interaction ended by committing the field — Enter, or a
+     * form submit.
+     *
+     * Typing into a search box and pressing Enter is one interaction, so the
+     * two collapse into one step; without this the step types the query and
+     * stops, the page still shows autocomplete suggestions, and the next step
+     * matches one of those instead of the control it wanted.
+     */
+    submits: z.boolean().default(false),
+
     /** Lets a re-run detect "already done" instead of duplicating work. */
     idempotencyKey: z.string().max(256).optional(),
     /** Best-effort undo, when one exists. */

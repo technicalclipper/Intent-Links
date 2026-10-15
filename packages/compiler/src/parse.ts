@@ -345,6 +345,10 @@ export function toIntentLink(raw: RawCompilation, ctx: ValidationContext): Inten
         arg.kind === "param" ? { param: arg.value } : { literal: coerce(arg.value) };
     }
 
+    const submits = s.sourceEvents.some((seq) =>
+      ctx.trace.events.some((e) => e.seq === seq && e.type === "submit"),
+    );
+
     const firstPage = s.sourceEvents
       .map((seq) => ctx.trace.events.find((e) => e.seq === seq))
       .find((e) => e?.target)?.page;
@@ -359,6 +363,7 @@ export function toIntentLink(raw: RawCompilation, ctx: ValidationContext): Inten
       learnedHints: [],
       dependsOn: s.dependsOn ?? [],
       optional: s.optional ?? false,
+      submits,
       pre: [],
       post: [],
     };

@@ -359,3 +359,15 @@ test("two different controls are still two steps", () => {
   raw.steps[0]!.sourceEvents = [1, 2]; // "Create channel" then "Channel name"
   expectProblem(raw, /2 separate controls/);
 });
+
+test("a step that ends in Enter records that it commits the field", () => {
+  // Typing into a search box and pressing Enter is one interaction, so the
+  // two collapse into one step. Without carrying the submit, the step typed
+  // the query and stopped - the page kept showing autocomplete suggestions,
+  // and the next step matched a suggestion instead of the control it wanted.
+  const raw = clone();
+  const step = raw.steps.find((s) => s.id === "s2")!;
+  step.sourceEvents = [2];
+  const plain = toIntentLink(raw, { ...CTX, trace });
+  assert.equal(plain.steps.find((s) => s.id === "s2")!.submits, false);
+});

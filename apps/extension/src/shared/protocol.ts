@@ -90,6 +90,8 @@ export interface PerformRequest {
   op: "click" | "fill" | "select" | "toggle";
   /** Only ever a declared parameter or a recorded literal. */
   value?: string;
+  /** Commit the field afterwards, as the recording did. */
+  submit?: boolean;
   /** Echoed back to the server on redeem; binds the token to this element. */
   targetHash: string;
 }

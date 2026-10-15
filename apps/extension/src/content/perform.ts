@@ -38,6 +38,39 @@ function fireInputEvents(el: Element): void {
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+/**
+ * Commit a field the way a person does: press Enter.
+ *
+ * A search box types and then submits, and the two are one interaction - so
+ * they are one step, and the step has to do both. Typing alone left the page
+ * showing autocomplete suggestions, and the next step matched a suggestion
+ * instead of the control it was looking for.
+ *
+ * Both the key events and requestSubmit, because apps listen for one or the
+ * other and neither alone is reliable.
+ */
+function commitField(el: Element): void {
+  const init: KeyboardEventInit = {
+    key: "Enter",
+    code: "Enter",
+    keyCode: 13,
+    which: 13,
+    bubbles: true,
+    cancelable: true,
+  } as KeyboardEventInit;
+
+  const prevented =
+    !el.dispatchEvent(new KeyboardEvent("keydown", init)) ||
+    !el.dispatchEvent(new KeyboardEvent("keypress", init));
+  el.dispatchEvent(new KeyboardEvent("keyup", init));
+
+  // A handler that called preventDefault has taken responsibility for the
+  // submit; asking the form to do it as well would send it twice.
+  if (prevented) return;
+  const form = (el as HTMLInputElement).form;
+  if (form && typeof form.requestSubmit === "function") form.requestSubmit();
+}
+
 function isDetached(el: Element): boolean {
   return !el.isConnected;
 }
@@ -151,11 +184,13 @@ export function performAction(
           (el as HTMLElement).focus();
           el.textContent = request.value;
           fireInputEvents(el);
+          if (request.submit) commitField(el);
           break;
         }
         (el as HTMLElement).focus();
         setNativeValue(el, request.value);
         fireInputEvents(el);
+        if (request.submit) commitField(el);
         break;
       }
 

@@ -64,7 +64,7 @@ if (stills) {
       }
     }
     if (!ff.stdin.write(buf)) await new Promise((r) => ff.stdin.once('drain', r));
-    if (f % 120 === 0) console.log(`frame ${f}/${total} (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+    if (f % 100 === 0 && f > 0) console.log(`frame ${f}/${total} (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
   }
   ff.stdin.end();
   await new Promise((r) => ff.on('close', r));

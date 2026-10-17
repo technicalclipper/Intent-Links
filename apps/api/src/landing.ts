@@ -11,12 +11,21 @@ export const EXTENSION_ZIP_PATH = "/download/intentlink-extension.zip";
 const REPO_URL = "https://github.com/technicalclipper/Intent-Links";
 
 /**
+ * A real IntentLink judges can run without recording anything: "Change
+ * YouTube Appearance Theme", published on the deployed server. Links live in
+ * that server's store, so another environment points this at one of its own
+ * with INTENTLINK_DEMO_LINK.
+ */
+const DEMO_LINK_ID = process.env.INTENTLINK_DEMO_LINK ?? "z8tx22unxczqyarz";
+
+/**
  * `baseUrl` is wherever this service is actually reached, so the demo's
  * address bar shows the real host - localhost in development, the deployed
  * domain in production - with nothing to edit when that changes.
  */
 export function landingPage(baseUrl: string): string {
   const host = baseUrl.replace(/^https?:\/\//, "").replace(/[&<>"']/g, "");
+  const demoUrl = `${baseUrl.replace(/[&<>"']/g, "")}/i/${encodeURIComponent(DEMO_LINK_ID)}`;
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -242,6 +251,29 @@ export function landingPage(baseUrl: string): string {
   .code button{all:unset;cursor:pointer;font:500 11px/1 var(--sans);color:var(--dim);padding:6px 8px;border-radius:6px;border:1px solid var(--line)}
   .code button:hover{color:var(--text);border-color:var(--line2)}
 
+  .try-sec{padding-top:90px}
+  .install.try{grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr)}
+  @media (max-width:900px){.install.try{grid-template-columns:minmax(0,1fr)}}
+  .mono-in{font-family:var(--mono);color:var(--text);font-size:.92em}
+  .btn.wide{width:100%;justify-content:center}
+  .demo-link{position:relative;padding:24px;border-radius:14px;border:1px solid rgba(232,234,238,.2);background:#0e1115;
+             box-shadow:0 0 60px -28px rgba(232,234,238,.35)}
+  .dl-k{font:500 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+  .dl-t{margin:10px 0 16px;font:600 22px/1.25 var(--sans);letter-spacing:-.02em}
+  .dl-steps{display:grid;gap:8px;margin-bottom:16px}
+  .dl-steps span{display:flex;align-items:center;gap:12px;font-size:14.5px;color:var(--soft)}
+  .dl-steps i{font:500 10.5px/1 var(--mono);font-style:normal;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+              border:1px solid var(--line2);color:var(--text);flex:none}
+  .dl-rules{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+  .dl-rules .chip{height:30px;font-size:12px}
+  .dl-url{display:flex;align-items:center;gap:8px;margin-top:12px;padding:8px 8px 8px 12px;border-radius:9px;border:1px solid var(--line);
+          font:400 12px/1.4 var(--mono);color:var(--dim)}
+  .dl-url span{flex:1;min-width:0;word-break:break-all}
+  .dl-url button{all:unset;cursor:pointer;font:500 11px/1 var(--sans);color:var(--dim);padding:6px 8px;border-radius:6px;border:1px solid var(--line);flex:none}
+  .dl-url button:hover{color:var(--text);border-color:var(--line2)}
+  .dl-note{margin:14px 0 0;font-size:13.5px;color:var(--dim)}
+  .dl-note b{color:var(--text);font-weight:500}
+
   /* ----------------------------------------------------- final + foot */
   .final{text-align:center;padding:120px 0 110px;position:relative}
   .final h2{font-size:clamp(38px,5.6vw,68px);margin:18px auto 16px;max-width:900px}
@@ -274,7 +306,7 @@ export function landingPage(baseUrl: string): string {
   <div class="links">
     <a class="hide-sm" href="#how">How it works</a>
     <a class="hide-sm" href="#uses">Use cases</a>
-    <a class="hide-sm" href="#install">Install</a>
+    <a class="hide-sm" href="#try">Try it</a>
     <a class="btn small primary" href="${EXTENSION_ZIP_PATH}" download>Download</a>
   </div>
 </div></nav>
@@ -291,7 +323,7 @@ export function landingPage(baseUrl: string): string {
           <svg class="dl" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7L8 10.5 11.5 7M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
           Download for Chrome
         </a>
-        <a class="btn" href="#how">See how it works <span class="arr" aria-hidden="true">→</span></a>
+        <a class="btn" href="#try">Try it in 2 minutes <span class="arr" aria-hidden="true">→</span></a>
       </div>
       <p class="fine rv d4"><b>Free</b> · Works in any web app · Your rules are enforced outside the model</p>
     </div>
@@ -320,6 +352,36 @@ export function landingPage(baseUrl: string): string {
   <span class="g">set_theme</span><span class="g">add_recipient</span><span class="g">create_channel</span><span class="r">delete_*</span><span class="g">set_topic</span><span class="g">invite_member</span><span class="g">export_report</span><span class="r">send_outside_company</span><span class="g">set_priority</span><span class="g">fill_subject</span><span class="r">purchase_*</span><span class="g">assign_owner</span>
   <span class="g">set_theme</span><span class="g">add_recipient</span><span class="g">create_channel</span><span class="r">delete_*</span><span class="g">set_topic</span><span class="g">invite_member</span><span class="g">export_report</span><span class="r">send_outside_company</span><span class="g">set_priority</span><span class="g">fill_subject</span><span class="r">purchase_*</span><span class="g">assign_owner</span>
 </div></div>
+
+<section id="try" class="try-sec"><div class="wrap">
+  <div class="head rv">
+    <span class="eyebrow">Try it in 2 minutes</span>
+    <h2>Switch YouTube to light theme, with a link.</h2>
+    <p class="sub">A real IntentLink, recorded on YouTube. It may change your appearance setting and nothing else. Install the extension, open the link, press Run, and watch your own agent do it in your browser.</p>
+  </div>
+  <div class="card install try rv">
+    <ol class="how">
+      <li><span><b>Download the extension and unzip it</b><p>You’ll get a folder called <span class="mono-in">intentlink-extension</span>.</p>
+        <a class="btn small primary" style="margin-top:10px" href="${EXTENSION_ZIP_PATH}" download><svg class="dl" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7L8 10.5 11.5 7M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Download</a></span></li>
+      <li><span><b>Open Chrome’s extensions page</b><p>Paste this into the address bar, then turn on <b>Developer mode</b> at the top right.</p><span class="code">chrome://extensions<button type="button" id="copy">Copy</button></span></span></li>
+      <li><span><b>Add it</b><p>Click <b>Load unpacked</b> and choose the <span class="mono-in">intentlink-extension</span> folder.</p></span></li>
+      <li><span><b>Open the demo link and press Run</b><p>Be signed in to YouTube in this Chrome. The side panel opens and the agent clicks through the three steps for you.</p></span></li>
+    </ol>
+    <div class="demo-link">
+      <div class="dl-k">The demo link</div>
+      <div class="dl-t">Change YouTube Appearance Theme</div>
+      <div class="dl-steps">
+        <span><i>01</i>Open account menu</span>
+        <span><i>02</i>Open appearance options</span>
+        <span><i>03</i>Select theme</span>
+      </div>
+      <div class="dl-rules"><span class="chip"><b class="a">ALLOW</b>set_theme</span><span class="chip"><b class="d">DENY</b>everything else</span></div>
+      <a class="btn primary wide" href="${demoUrl}" target="_blank" rel="noreferrer">Open the demo link <span class="arr" aria-hidden="true">→</span></a>
+      <div class="dl-url"><span id="demo-url">${demoUrl}</span><button type="button" id="copy-demo">Copy</button></div>
+      <p class="dl-note">Already on light theme? On the run panel, change <span class="mono-in">theme</span> to <span class="mono-in">Dark theme</span> and run it the other way. Then make your own: press <b>Record</b> in the side panel and do any task once.</p>
+    </div>
+  </div>
+</div></section>
 
 <section id="how"><div class="wrap">
   <div class="head rv">
@@ -398,27 +460,6 @@ export function landingPage(baseUrl: string): string {
   </div>
 </div></section>
 
-<section id="install" style="padding-top:40px"><div class="wrap">
-  <div class="card install rv">
-    <div>
-      <span class="eyebrow">Install</span>
-      <h2>Up and running in a minute.</h2>
-      <p class="sub" style="font-size:16px">Add the extension to Chrome, then press Record in its side panel to make your first link.</p>
-      <div class="cta">
-        <a class="btn primary" href="${EXTENSION_ZIP_PATH}" download>
-          <svg class="dl" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7L8 10.5 11.5 7M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Download the extension
-        </a>
-      </div>
-    </div>
-    <ol class="how">
-      <li><span><b>Download and unzip</b><p>You’ll get a folder called <span style="font-family:var(--mono);color:var(--text)">intentlink-extension</span>.</p></span></li>
-      <li><span><b>Open Chrome’s extensions page</b><p>Paste this into the address bar, then turn on <b>Developer mode</b> at the top right.</p><span class="code">chrome://extensions<button type="button" id="copy">Copy</button></span></span></li>
-      <li><span><b>Load it</b><p>Click <b>Load unpacked</b> and choose the <span style="font-family:var(--mono);color:var(--text)">intentlink-extension</span> folder. Pin it from the puzzle-piece menu.</p></span></li>
-      <li><span><b>Make your first link</b><p>Click the IntentLink icon to open the side panel, press <b>Record</b>, and do a task once.</p></span></li>
-    </ol>
-  </div>
-</div></section>
 
 <div class="final"><div class="wrap">
   <div class="mark rv"><svg width="92" height="26" viewBox="0 0 92 26" aria-hidden="true"><line x1="7" y1="13" x2="59" y2="13" stroke="#e8eaee" stroke-opacity=".45" stroke-width="2"/><circle cx="7" cy="13" r="5.5" fill="#e8eaee"/><circle cx="33" cy="13" r="5.5" fill="#e8eaee"/><circle cx="59" cy="13" r="5.5" fill="#e8eaee"/><rect x="78" y="1" width="4" height="24" rx="2" fill="#ff5c6c"/></svg></div>
@@ -453,6 +494,13 @@ export function landingPage(baseUrl: string): string {
       }, { rootMargin: "0px 0px -8% 0px", threshold: 0.12 });
       items.forEach(function (el) { io.observe(el); });
     }
+
+    var copyDemo = document.getElementById("copy-demo");
+    copyDemo.addEventListener("click", function () {
+      var text = document.getElementById("demo-url").textContent;
+      var done = function () { copyDemo.textContent = "Copied"; setTimeout(function () { copyDemo.textContent = "Copy"; }, 1400); };
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, done);
+    });
 
     var copy = document.getElementById("copy");
     copy.addEventListener("click", function () {

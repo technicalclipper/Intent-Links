@@ -4,70 +4,112 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>IntentLink</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,300;1,400&display=swap" />
     <link rel="stylesheet" href="panel.css" />
   </head>
   <body>
     <header class="bar">
-      <span class="mark">IntentLink</span>
+      <span class="brand">
+        <svg class="logo" width="38" height="12" viewBox="0 0 38 12" aria-hidden="true">
+          <line x1="3" y1="6" x2="25" y2="6" stroke="currentColor" stroke-opacity=".45" stroke-width="1.2" />
+          <circle cx="3" cy="6" r="2.6" fill="currentColor" />
+          <circle cx="14" cy="6" r="2.6" fill="currentColor" />
+          <circle cx="25" cy="6" r="2.6" fill="currentColor" />
+          <rect x="32" y="0.5" width="2" height="11" rx="1" fill="#ff5c6c" />
+        </svg>
+        <span class="mark">IntentLink</span>
+      </span>
       <span class="tally" id="tally" hidden>
-        <b class="allow" id="t-allow">0</b> allowed
-        <b class="deny" id="t-blocked">0</b> blocked
-        <b class="approve" id="t-approvals">0</b> approved
+        <span class="pill allow"><b id="t-allow">0</b> allowed</span>
+        <span class="pill deny"><b id="t-blocked">0</b> blocked</span>
+        <span class="pill approve"><b id="t-approvals">0</b> approved</span>
       </span>
     </header>
 
-    <section class="controls">
-      <button id="record" class="primary">Record</button>
-      <button id="pause" hidden>Pause</button>
-      <button id="stop" hidden>Stop</button>
-      <span class="status" id="status">idle</span>
-    </section>
+    <main class="wrap">
+      <!-- A run takes the top of the panel: it is what the person came for. -->
+      <section class="run card" id="run" hidden>
+        <div class="eyebrow"><i class="beacon"></i>Running in this browser</div>
+        <div class="run-title" id="run-title"></div>
+        <div class="run-goal" id="run-goal"></div>
+        <form id="params" hidden></form>
+        <div class="run-actions" id="run-actions" hidden>
+          <button id="start" class="primary">Run it <span class="arrow" aria-hidden="true">→</span></button>
+          <button id="abort" class="ghost">Cancel</button>
+        </div>
+      </section>
 
-    <section class="meta" id="meta" hidden>
-      <span id="event-count">0 steps</span>
-      <span class="sep">·</span>
-      <span id="apps"></span>
-      <span class="sep">·</span>
-      <!-- The number that kills the macro-recorder comparison on sight. -->
-      <span class="proof"><b id="coords">0</b> coordinates captured</span>
-    </section>
+      <section id="block" class="block" hidden>
+        <div class="block-head">
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4" /><path d="M4.6 4.6l4.8 4.8M9.4 4.6L4.6 9.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
+          Intent boundary reached
+        </div>
+        <div class="block-big">Blocked.</div>
+        <div class="block-reason" id="block-reason"></div>
+        <div class="block-boundary" id="block-boundary" hidden></div>
+        <div class="block-suggestion" id="block-suggestion" hidden></div>
+      </section>
 
-    <section class="run" id="run" hidden>
-      <div class="run-title" id="run-title"></div>
-      <div class="run-goal" id="run-goal"></div>
-      <form id="params" hidden></form>
-      <div class="run-actions" id="run-actions" hidden>
-        <button id="start" class="primary">Run it</button>
-        <button id="abort">Cancel</button>
+      <ol class="timeline" id="timeline" hidden></ol>
+
+      <section class="recorder card">
+        <div class="controls">
+          <button id="record" class="primary rec">Record</button>
+          <button id="pause" class="ghost" hidden>Pause</button>
+          <button id="stop" class="ghost stop" hidden>Stop</button>
+          <span class="status" id="status">idle</span>
+        </div>
+
+        <div class="meta" id="meta" hidden>
+          <span class="chip" id="event-count">0 steps</span>
+          <span class="chip" id="apps"></span>
+          <!-- The number that kills the macro-recorder comparison on sight. -->
+          <span class="chip proof"><b id="coords">0</b> coordinates captured</span>
+        </div>
+      </section>
+
+      <section class="publish card" id="publish" hidden>
+        <label for="boundaries">
+          <span class="eyebrow">Boundaries</span>
+          <span class="label-sub">In plain English. The recording is the grant; this is the restriction.</span>
+        </label>
+        <textarea id="boundaries" rows="4"
+          placeholder="Don't invite anyone outside the company, never post in #general, don't delete anything. Ask me before paging anyone."></textarea>
+        <button id="create" class="primary wide">Create IntentLink</button>
+        <div class="working" id="working" hidden>Compiling the recording, then your boundaries…</div>
+        <div class="result" id="result" hidden>
+          <span class="result-label">Your link is ready</span>
+          <div class="result-row">
+            <a id="link" target="_blank" rel="noreferrer"></a>
+            <button id="copy" class="ghost small">Copy</button>
+          </div>
+        </div>
+      </section>
+
+      <ol class="steps" id="steps"></ol>
+
+      <div class="empty" id="empty">
+        <div class="empty-art" aria-hidden="true">
+          <svg width="200" height="56" viewBox="0 0 200 56">
+            <line x1="20" y1="28" x2="150" y2="28" stroke="#e8eaee" stroke-opacity=".22" stroke-width="1.2" stroke-dasharray="3 5" />
+            <circle cx="20" cy="28" r="6" fill="#e8eaee" />
+            <circle cx="20" cy="28" r="12" fill="none" stroke="#e8eaee" stroke-opacity=".18" />
+            <circle cx="85" cy="28" r="6" fill="#e8eaee" fill-opacity=".55" />
+            <circle cx="150" cy="28" r="6" fill="#e8eaee" fill-opacity=".25" />
+            <rect x="176" y="10" width="3" height="36" rx="1.5" fill="#ff5c6c" />
+          </svg>
+        </div>
+        <p class="empty-lead">Do a task once. Send it as a link.</p>
+        <p class="empty-sub">Press <b>Record</b>, then do the task in any tab. Every click becomes a step.</p>
+        <ol class="how">
+          <li><span class="n">01</span><span><b>Record</b> the task once, in any web app.</span></li>
+          <li><span class="n">02</span><span><b>Bound</b> it: say what it must never do.</span></li>
+          <li><span class="n">03</span><span><b>Share</b> the link. Their agent runs it, inside your rules.</span></li>
+        </ol>
       </div>
-    </section>
-
-    <ol class="timeline" id="timeline" hidden></ol>
-
-    <section id="block" class="block" hidden>
-      <div class="block-head">Intent boundary reached</div>
-      <div class="block-reason" id="block-reason"></div>
-      <div class="block-boundary" id="block-boundary" hidden></div>
-      <div class="block-suggestion" id="block-suggestion" hidden></div>
-    </section>
-
-    <section class="publish" id="publish" hidden>
-      <label for="boundaries">Boundaries — in plain English</label>
-      <textarea id="boundaries" rows="4"
-        placeholder="Don't invite anyone outside the company, never post in #general, don't delete anything. Ask me before paging anyone."></textarea>
-      <button id="create" class="primary">Create IntentLink</button>
-      <div class="result" id="result" hidden>
-        <a id="link" target="_blank" rel="noreferrer"></a>
-        <button id="copy">Copy</button>
-      </div>
-      <div class="working" id="working" hidden>Compiling the recording, then your boundaries…</div>
-    </section>
-
-    <ol class="steps" id="steps"></ol>
-
-    <p class="empty" id="empty">
-      Press <b>Record</b>, then do the task once in any tab.
-    </p>
+    </main>
 
     <script src="panel.js"></script>
   </body>

@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { inflateRawSync } from "node:zlib";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { Policy } from "@intentlink/schema";
@@ -258,4 +261,53 @@ test("a malformed action is rejected rather than evaluated", async () => {
     });
     assert.equal(res.status, 400);
   });
+});
+
+test("the base URL serves the landing page with a download link", async () => {
+  await withServer(async (base) => {
+    const res = await fetch(`${base}/`);
+    assert.equal(res.status, 200);
+    const page = await res.text();
+    assert.match(page, /Send the intent\./);
+    assert.match(page, /href="\/download\/intentlink-extension\.zip"/);
+  });
+});
+
+test("the extension downloads as a zip of the built extension", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "intentlink-ext-"));
+  writeFileSync(join(dir, "manifest.json"), '{"manifest_version":3}');
+  const before = process.env.INTENTLINK_EXTENSION_DIR;
+  process.env.INTENTLINK_EXTENSION_DIR = dir;
+  try {
+    await withServer(async (base) => {
+      const res = await fetch(`${base}/download/intentlink-extension.zip`);
+      assert.equal(res.status, 200);
+      assert.equal(res.headers.get("content-type"), "application/zip");
+      const zip = Buffer.from(await res.arrayBuffer());
+      assert.equal(zip.readUInt32LE(0), 0x04034b50, "starts with a local file header");
+      assert.ok(zip.includes(Buffer.from("intentlink-extension/manifest.json")));
+      // The single entry inflates back to exactly what was on disk.
+      const nameLen = zip.readUInt16LE(26);
+      const size = zip.readUInt32LE(18);
+      const data = inflateRawSync(zip.subarray(30 + nameLen, 30 + nameLen + size));
+      assert.equal(data.toString(), '{"manifest_version":3}');
+    });
+  } finally {
+    if (before === undefined) delete process.env.INTENTLINK_EXTENSION_DIR;
+    else process.env.INTENTLINK_EXTENSION_DIR = before;
+  }
+});
+
+test("a server without a built extension says so rather than serving an empty zip", async () => {
+  const before = process.env.INTENTLINK_EXTENSION_DIR;
+  process.env.INTENTLINK_EXTENSION_DIR = join(tmpdir(), "intentlink-no-such-dir");
+  try {
+    await withServer(async (base) => {
+      const res = await fetch(`${base}/download/intentlink-extension.zip`);
+      assert.equal(res.status, 503);
+    });
+  } finally {
+    if (before === undefined) delete process.env.INTENTLINK_EXTENSION_DIR;
+    else process.env.INTENTLINK_EXTENSION_DIR = before;
+  }
 });

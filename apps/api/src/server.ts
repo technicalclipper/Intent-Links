@@ -34,6 +34,10 @@ import {
   type EvalContext,
 } from "@intentlink/policy";
 import { MemoryStore, createStore, type Store } from "./store.js";
+import { EXTENSION_ZIP_PATH, landingPage } from "./landing.js";
+import { zipDirectory } from "./zip.js";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 /* ----------------------------- configuration ----------------------------- */
 
@@ -64,6 +68,32 @@ function html(res: ServerResponse, status: number, body: string): void {
   res.writeHead(status, {
     "content-type": "text/html; charset=utf-8",
     "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store",
+  });
+  res.end(body);
+}
+
+/**
+ * The built extension, zipped on request.
+ *
+ * Built from the directory each time rather than cached, so a rebuilt
+ * extension is what gets downloaded without restarting the service. It is a
+ * few dozen kilobytes; zipping it is cheaper than the request around it.
+ */
+function extensionDir(): string {
+  return process.env.INTENTLINK_EXTENSION_DIR ?? fileURLToPath(new URL("../../extension/dist", import.meta.url));
+}
+
+function sendExtension(res: ServerResponse): void {
+  const dir = extensionDir();
+  if (!existsSync(`${dir}/manifest.json`)) {
+    return json(res, 503, { error: "the extension has not been built on this server" });
+  }
+  const body = zipDirectory(dir, "intentlink-extension");
+  res.writeHead(200, {
+    "content-type": "application/zip",
+    "content-length": body.length,
+    "content-disposition": 'attachment; filename="intentlink-extension.zip"',
     "cache-control": "no-store",
   });
   res.end(body);
@@ -244,6 +274,14 @@ export function createApp(store: Store, secret: string, clock: () => Date = () =
 
         if (req.method === "GET" && url.pathname === "/healthz") {
           return json(res, 200, { ok: true });
+        }
+
+        if (req.method === "GET" && url.pathname === "/") {
+          return html(res, 200, landingPage());
+        }
+
+        if (req.method === "GET" && url.pathname === EXTENSION_ZIP_PATH) {
+          return sendExtension(res);
         }
 
         if (req.method === "POST" && url.pathname === "/v1/publish") {

@@ -175,8 +175,13 @@ export class Recorder {
   private readonly startedAt: number;
   private active = false;
 
-  /** Last committed value per field, so we emit on change rather than per key. */
-  private readonly pending = new WeakMap<Element, string>();
+  /**
+   * Last value per field, so we emit on commit rather than per key. A Map,
+   * not a WeakMap, because a click elsewhere has to find and commit it.
+   */
+  private readonly pending = new Map<Element, string>();
+  /** Fields whose typing a click already committed (see commitOthers). */
+  private readonly committedByClick = new WeakSet<Element>();
   private lastRoute = "";
 
   constructor(emit: Emit, now: number = Date.now()) {
@@ -259,8 +264,28 @@ export class Recorder {
     // A toggle's `change` carries the resulting state; its click would only
     // duplicate the event with a stale value.
     if (isToggleLike(el)) return;
+    this.commitOthers(el);
     this.record(el, "click");
   };
+
+  /**
+   * Commit typing in any OTHER field before recording a click.
+   *
+   * Typing was committed on focusout, and suggestion lists deliberately keep
+   * focus in the field: Gmail's To box stays focused while you click a
+   * contact. So "type ada, pick Beschi" was recorded as "pick Beschi, type
+   * ada" - the typing only landed when focus finally moved to Subject - and
+   * the receiver was asked to click a suggestion before typing anything to
+   * summon it. What was typed, was typed before the click; record it so.
+   */
+  private commitOthers(clicked: Element): void {
+    for (const [field, value] of this.pending) {
+      if (field === clicked || field.contains(clicked)) continue;
+      this.pending.delete(field);
+      this.committedByClick.add(field);
+      this.record(field, "fill", value);
+    }
+  }
 
   private readonly onChange = (ev: Event): void => {
     if (!this.active || !ev.isTrusted) return;
@@ -289,6 +314,10 @@ export class Recorder {
     if (!el || !this.pending.has(el)) return;
     const value = this.pending.get(el);
     this.pending.delete(el);
+    // Picking a suggestion clears the typed text. That emptying is the
+    // picker's doing, not the person's, and recording it would replay as
+    // "clear the To field" right after filling it.
+    if (value === "" && this.committedByClick.has(el)) return;
     this.record(el, "fill", value);
   };
 

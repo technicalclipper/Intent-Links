@@ -99,6 +99,8 @@ interface CompiledStep {
   /** Steps that must have succeeded before this one is attempted. */
   dependsOn: string[];
   condition?: string;
+  /** Where the step was demonstrated; absent on links made before it was recorded. */
+  page?: { app: string; origin: string; path: string };
   action: {
     verb: string;
     object?: string;
@@ -317,7 +319,8 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
   }
 
   await patch({ status: "running", executionId, pendingParams: [] });
-  const tabId = tab.id!;
+  // Not const: a workflow that spans apps moves to each app's tab in turn.
+  let tabId = tab.id!;
 
   let lastResult: Record<string, unknown> | null = null;
   let stepIndex = 0;
@@ -391,6 +394,33 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
     }
 
     /*
+     * Go where the step happens.
+     *
+     * A recording of "send an email, then switch YouTube to dark theme" ran
+     * every step in the Gmail tab: the email went out, then the run looked for
+     * YouTube's "Account menu" on Gmail, found nothing, and skipped the rest.
+     * Each step records the page it was demonstrated on, so when that is a
+     * different site from the one in front of us, switch to it - reusing a tab
+     * already open there, or opening one - before looking for anything.
+     *
+     * Only a change of ORIGIN moves the run. Within one app, the steps
+     * themselves navigate (clicking Compose changes Gmail's route), and
+     * reloading the recorded path would undo that.
+     */
+    const stepUrl = step ? pageUrlFor(step) : undefined;
+    if (stepUrl && new URL(stepUrl).origin !== (await tabOrigin(tabId))) {
+      const moved = await targetTab(stepUrl);
+      if (moved?.id !== undefined) {
+        tabId = moved.id;
+        await note({
+          verdict: "info",
+          stepId: step!.id,
+          detail: `switched to ${step!.page?.app ?? new URL(stepUrl).host} for “${step!.title}”`,
+        });
+      }
+    }
+
+    /*
      * Resolution used to be invisible. A run that found nothing reported
      * "nothing was done" and left no trace of what it had been looking for or
      * what was on the page - which is the one thing needed to fix it.
@@ -428,7 +458,9 @@ export async function runLoop(params: Record<string, string>): Promise<void> {
         verb,
         ...(object !== undefined ? { object } : {}),
         args,
-        origin: new URL(link.startUrl ?? "https://localhost").origin,
+        // The step's own site, not the workflow's first one: scope is checked
+        // per origin, and a YouTube step is not a Gmail action.
+        origin: new URL(stepUrl ?? link.startUrl ?? "https://localhost").origin,
         targetHash: certain.targetHash,
         targetName: certain.descriptor.name,
       });
@@ -744,6 +776,22 @@ async function targetTab(startUrl: string | undefined): Promise<chrome.tabs.Tab 
   const created = await chrome.tabs.create({ url: startUrl, active: true });
   if (created.id !== undefined) await waitForLoad(created.id);
   return created;
+}
+
+/** Where a step was demonstrated, when the recording says so. */
+function pageUrlFor(step: LinkResponse["intent"]["steps"][number]): string | undefined {
+  const page = step.page;
+  if (!page || !/^https?:/.test(page.origin)) return undefined;
+  return `${page.origin}${page.path}`;
+}
+
+async function tabOrigin(tabId: number): Promise<string | undefined> {
+  const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+  try {
+    return tab?.url ? new URL(tab.url).origin : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** A content script cannot resolve anything until the document exists. */

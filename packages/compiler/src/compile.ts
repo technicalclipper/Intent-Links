@@ -10,6 +10,7 @@
 
 import type { IntentLink, Trace } from "@intentlink/schema";
 import { RESPONSE_SCHEMA, SYSTEM_INSTRUCTION, buildUserPrompt } from "./prompt.js";
+import { normalizeTrace } from "./normalize.js";
 import {
   CompilationError,
   toIntentLink,
@@ -45,6 +46,9 @@ export async function compileIntent(
   trace: Trace,
   opts: CompileOptions,
 ): Promise<CompileResult> {
+  // The model, the validation and the hints all see the same normalized
+  // trace, so a rewritten event cannot be cited in one and missing in another.
+  trace = normalizeTrace(trace);
   const maxRepairs = opts.maxRepairs ?? 2;
   let prompt = buildUserPrompt(trace);
   let lastProblems: string[] = [];

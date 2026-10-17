@@ -308,6 +308,25 @@ also installs `@google-cloud/firestore`, which the repo deliberately does not
 declare (local runs never import it). The landing page shows whatever host it
 is served from, so there is no domain to edit after deploying.
 
+**Deployed (Oct 17)** — project `gen-lang-client-0683621247`, region `asia-south1`:
+- policy service + landing + consent pages: https://intentlink-api-938318821120.asia-south1.run.app
+- agent: https://intentlink-agent-938318821120.asia-south1.run.app
+- Firestore `(default)` in asia-south1; secrets `intentlink-token-secret`,
+  `intentlink-gemini-key` (Secret Manager), read by the compute service account.
+- Redeploy: `gcloud run deploy intentlink-api --source . --region asia-south1`
+  and `gcloud run deploy intentlink-agent --source apps/agent --region asia-south1`
+  (env vars and secrets persist across redeploys).
+
+Traps found deploying:
+- Cloud Run reserves paths ending in `z`: `/healthz` returns Google's 404 and
+  never reaches the app. Nothing depends on it; check `/` instead.
+- A compile takes 1.5-3 minutes on large recordings, so the API's request
+  timeout is 900s (the 300s default was too close).
+- The agent keeps runs in memory, so it is pinned to `--max-instances=1` with
+  session affinity. Move run state to Firestore before scaling it out.
+- A downloaded extension publishes to the server it was downloaded from: the
+  zip rewrites the worker's built-in `http://127.0.0.1:8080`.
+
 ---
 
 ## 8. Google services

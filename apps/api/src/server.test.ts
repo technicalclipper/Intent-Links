@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inflateRawSync } from "node:zlib";
@@ -311,5 +311,38 @@ test("a server without a built extension says so rather than serving an empty zi
   } finally {
     if (before === undefined) delete process.env.INTENTLINK_EXTENSION_DIR;
     else process.env.INTENTLINK_EXTENSION_DIR = before;
+  }
+});
+
+test("a downloaded extension publishes to the server it was downloaded from", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "intentlink-ext-"));
+  mkdirSync(join(dir, "background"));
+  writeFileSync(join(dir, "manifest.json"), "{}");
+  writeFileSync(join(dir, "background", "worker.js"), 'const DEFAULT_API="http://127.0.0.1:8080";');
+  const before = process.env.INTENTLINK_PUBLIC_URL;
+  const beforeDir = process.env.INTENTLINK_EXTENSION_DIR;
+  process.env.INTENTLINK_PUBLIC_URL = "https://intentlink.example";
+  process.env.INTENTLINK_EXTENSION_DIR = dir;
+  try {
+    await withServer(async (base) => {
+      const zip = Buffer.from(await (await fetch(`${base}/download/intentlink-extension.zip`)).arrayBuffer());
+      // Walk the local headers to the worker entry and inflate it.
+      let at = 0;
+      let worker = "";
+      while (zip.readUInt32LE(at) === 0x04034b50) {
+        const size = zip.readUInt32LE(at + 18);
+        const nameLen = zip.readUInt16LE(at + 26);
+        const name = zip.subarray(at + 30, at + 30 + nameLen).toString();
+        const data = zip.subarray(at + 30 + nameLen, at + 30 + nameLen + size);
+        if (name.endsWith("background/worker.js")) worker = inflateRawSync(data).toString();
+        at += 30 + nameLen + size;
+      }
+      assert.equal(worker, 'const DEFAULT_API="https://intentlink.example";');
+    });
+  } finally {
+    if (before === undefined) delete process.env.INTENTLINK_PUBLIC_URL;
+    else process.env.INTENTLINK_PUBLIC_URL = before;
+    if (beforeDir === undefined) delete process.env.INTENTLINK_EXTENSION_DIR;
+    else process.env.INTENTLINK_EXTENSION_DIR = beforeDir;
   }
 });

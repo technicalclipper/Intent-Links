@@ -84,12 +84,31 @@ function extensionDir(): string {
   return process.env.INTENTLINK_EXTENSION_DIR ?? fileURLToPath(new URL("../../extension/dist", import.meta.url));
 }
 
-function sendExtension(res: ServerResponse): void {
+/**
+ * The address the extension is built to talk to, as it appears in the bundle.
+ * Must match DEFAULT_API in apps/extension/src/background/worker.ts.
+ */
+const BUILT_IN_API = "http://127.0.0.1:8080";
+
+/**
+ * The extension you download from a server publishes to that server.
+ *
+ * The bundle defaults to the local development API, so a copy downloaded
+ * from the deployed site would otherwise send every recording to the
+ * downloader's own laptop - where nothing is listening - and fail to publish.
+ * Rewriting that one literal in the worker at download time keeps the source
+ * free of any deployment URL, and keeps local builds pointing at localhost.
+ */
+function sendExtension(res: ServerResponse, base: string): void {
   const dir = extensionDir();
   if (!existsSync(`${dir}/manifest.json`)) {
     return json(res, 503, { error: "the extension has not been built on this server" });
   }
-  const body = zipDirectory(dir, "intentlink-extension");
+  const body = zipDirectory(dir, "intentlink-extension", (name, data) =>
+    name === "background/worker.js" && base !== BUILT_IN_API
+      ? Buffer.from(data.toString("utf8").split(JSON.stringify(BUILT_IN_API)).join(JSON.stringify(base)), "utf8")
+      : data,
+  );
   res.writeHead(200, {
     "content-type": "application/zip",
     "content-length": body.length,
@@ -281,7 +300,7 @@ export function createApp(store: Store, secret: string, clock: () => Date = () =
         }
 
         if (req.method === "GET" && url.pathname === EXTENSION_ZIP_PATH) {
-          return sendExtension(res);
+          return sendExtension(res, baseUrl(req));
         }
 
         if (req.method === "POST" && url.pathname === "/v1/publish") {

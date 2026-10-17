@@ -107,6 +107,9 @@ async function deleteEvent(seq: number): Promise<void> {
 /* -------------------------------- publishing ------------------------------ */
 
 const API_BASE_KEY = "intentlink:apiBase";
+// The server rewrites this exact literal when it hands out the extension as a
+// download, so a downloaded copy publishes to the server it came from. Change
+// it here and BUILT_IN_API in apps/api/src/server.ts together.
 const DEFAULT_API = "http://127.0.0.1:8080";
 
 async function apiBase(): Promise<string> {

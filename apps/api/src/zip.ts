@@ -15,14 +15,24 @@ interface Entry {
   data: Buffer;
 }
 
-/** Every file under `dir`, named relative to it, inside a top-level `folder`. */
-export function zipDirectory(dir: string, folder: string): Buffer {
+/**
+ * Every file under `dir`, named relative to it, inside a top-level `folder`.
+ * `transform` may rewrite a file's bytes on the way in, keyed by that name.
+ */
+export function zipDirectory(
+  dir: string,
+  folder: string,
+  transform: (name: string, data: Buffer) => Buffer = (_, data) => data,
+): Buffer {
   const entries: Entry[] = [];
   const walk = (at: string): void => {
     for (const name of readdirSync(at).sort()) {
       const full = join(at, name);
       if (statSync(full).isDirectory()) walk(full);
-      else entries.push({ name: `${folder}/${relative(dir, full).split(sep).join("/")}`, data: readFileSync(full) });
+      else {
+        const rel = relative(dir, full).split(sep).join("/");
+        entries.push({ name: `${folder}/${rel}`, data: transform(rel, readFileSync(full)) });
+      }
     }
   };
   walk(dir);

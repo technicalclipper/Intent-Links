@@ -301,6 +301,13 @@ Remaining:
 **Deploy to Cloud Run early and keep it deployed.** Deployment discovered late
 has ended more hackathon runs than any bug.
 
+The root `Dockerfile` is the policy service (`gcloud run deploy --source .`).
+It builds the extension into the image, because the landing page's download
+button zips `apps/extension/dist` on request and returns 503 without it. It
+also installs `@google-cloud/firestore`, which the repo deliberately does not
+declare (local runs never import it). The landing page shows whatever host it
+is served from, so there is no domain to edit after deploying.
+
 ---
 
 ## 8. Google services

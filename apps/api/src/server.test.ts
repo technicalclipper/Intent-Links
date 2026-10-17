@@ -270,6 +270,8 @@ test("the base URL serves the landing page with a download link", async () => {
     const page = await res.text();
     assert.match(page, /Send the intent\./);
     assert.match(page, /href="\/download\/intentlink-extension\.zip"/);
+    // The demo shows the host it was served from, not a placeholder domain.
+    assert.match(page, new RegExp(`${new URL(base).host}/i/`));
   });
 });
 

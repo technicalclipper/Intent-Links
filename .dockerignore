@@ -1,0 +1,13 @@
+**/node_modules
+**/dist
+**/dist-test
+**/*.tsbuildinfo
+.git
+.env
+.env.*
+.intentlink-dev.json
+docs
+apps/agent
+apps/web
+**/__pycache__
+**/.venv

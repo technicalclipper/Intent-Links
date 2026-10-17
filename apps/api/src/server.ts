@@ -277,7 +277,7 @@ export function createApp(store: Store, secret: string, clock: () => Date = () =
         }
 
         if (req.method === "GET" && url.pathname === "/") {
-          return html(res, 200, landingPage());
+          return html(res, 200, landingPage(baseUrl(req)));
         }
 
         if (req.method === "GET" && url.pathname === EXTENSION_ZIP_PATH) {

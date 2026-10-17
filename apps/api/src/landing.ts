@@ -10,7 +10,13 @@
 export const EXTENSION_ZIP_PATH = "/download/intentlink-extension.zip";
 const REPO_URL = "https://github.com/technicalclipper/Intent-Links";
 
-export function landingPage(): string {
+/**
+ * `baseUrl` is wherever this service is actually reached, so the demo's
+ * address bar shows the real host - localhost in development, the deployed
+ * domain in production - with nothing to edit when that changes.
+ */
+export function landingPage(baseUrl: string): string {
+  const host = baseUrl.replace(/^https?:\/\//, "").replace(/[&<>"']/g, "");
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -292,7 +298,7 @@ export function landingPage(): string {
 
     <div class="demo rv d2" aria-label="An IntentLink run: three steps allowed, the fourth blocked by the creator's rule">
       <div class="bar"></div>
-      <div class="demo-top"><div class="dots"><i></i><i></i><i></i></div><div class="addr">intentlink.app/i/7x92kq</div></div>
+      <div class="demo-top"><div class="dots"><i></i><i></i><i></i></div><div class="addr">${host}/i/7x92kq</div></div>
       <div class="demo-body">
         <div class="rules">
           <span class="chip"><b class="a">ALLOW</b>set_theme <em>"light"</em></span>

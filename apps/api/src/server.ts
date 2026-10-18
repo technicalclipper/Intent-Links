@@ -369,6 +369,22 @@ export function createApp(store: Store, secret: string, clock: () => Date = () =
           // The hash is computed here, never accepted from the client: it is an
           // integrity claim about what the service holds.
           const stored = Policy.parse({ ...parsed.data, hash: policyHash(parsed.data) });
+
+          /*
+           * A policy, once stored, never changes.
+           *
+           * This route accepted any well-formed policy under any id, with no
+           * credentials - and decisions read the stored policy while the
+           * consent page shows the copy saved with the link. Anyone holding a
+           * link (its policy id is in the public link data) could replace its
+           * rules with permissive ones, and the receiver would consent to
+           * boundaries that were no longer the ones enforced. Re-sending the
+           * identical policy is harmless and stays allowed; changing one is not.
+           */
+          const existing = await store.getPolicy(stored.id);
+          if (existing && (existing.hash ?? policyHash(existing)) !== stored.hash) {
+            return json(res, 409, { error: "a policy with this id already exists and cannot be changed" });
+          }
           await store.putPolicy(stored);
           return json(res, 200, { id: stored.id, hash: stored.hash });
         }

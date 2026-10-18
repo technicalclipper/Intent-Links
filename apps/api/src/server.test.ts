@@ -346,3 +346,15 @@ test("a downloaded extension publishes to the server it was downloaded from", as
     else process.env.INTENTLINK_EXTENSION_DIR = beforeDir;
   }
 });
+
+test("a stored policy cannot be replaced, so a link's rules cannot be swapped", async () => {
+  await withServer(async (base) => {
+    assert.equal((await put(base, "/v1/policies", fixturePolicy)).status, 200);
+    // Re-sending the identical policy is harmless.
+    assert.equal((await put(base, "/v1/policies", fixturePolicy)).status, 200);
+    // Changing it under the same id is refused.
+    const loosened = { ...fixturePolicy, denied: [] };
+    const res = await put(base, "/v1/policies", loosened);
+    assert.equal(res.status, 409);
+  });
+});

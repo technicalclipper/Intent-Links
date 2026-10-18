@@ -5,7 +5,7 @@ import { Trace } from "@intentlink/schema";
 import { evaluate } from "@intentlink/policy";
 import { toIntentLink, type RawCompilation } from "./parse.js";
 import { compilePolicy, explain, parsePolicyJson } from "./policy-compile.js";
-import { actionForStep, analyze, buildPolicy, type RawPolicy } from "./policy-validate.js";
+import { actionForStep, analyze, buildPolicy, DEFAULT_EXPIRY_HOURS, mentionsLifetime, type RawPolicy } from "./policy-validate.js";
 import { renderActionSpace } from "./policy-prompt.js";
 import type { ModelClient } from "./compile.js";
 
@@ -384,4 +384,25 @@ test("explain() shows each sentence, what it became, and what it touches", () =>
   assert.match(text, /DENY/);
   assert.match(text, /applies to: s1/);
   assert.match(text, /workflow can run/);
+});
+
+test("a link lasts 30 days unless the creator says otherwise", () => {
+  // The model must supply expiryHours and chose 24 with nothing to go on.
+  const policy = buildPolicy({ ...clone(), expiryHours: 24 }, { ...CTX, boundaries: "don't delete anything" });
+  const hours = (Date.parse(policy.expiresAt) - CTX.now.getTime()) / 3600_000;
+  assert.equal(hours, DEFAULT_EXPIRY_HOURS);
+});
+
+test("a lifetime the creator states is honoured", () => {
+  const policy = buildPolicy({ ...clone(), expiryHours: 2 }, { ...CTX, boundaries: "valid for 2 hours, don't delete anything" });
+  assert.equal((Date.parse(policy.expiresAt) - CTX.now.getTime()) / 3600_000, 2);
+});
+
+test("lifetime phrases are recognised, ordinary rules are not", () => {
+  for (const s of ["valid for 2 hours", "expires Friday", "just for today", "for the next 3 days", "only during this week"]) {
+    assert.ok(mentionsLifetime(s), s);
+  }
+  for (const s of ["don't delete anything", "never invite anyone outside the company", "ask me before paging anyone"]) {
+    assert.ok(!mentionsLifetime(s), s);
+  }
 });

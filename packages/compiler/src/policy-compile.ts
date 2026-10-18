@@ -51,7 +51,7 @@ export async function compilePolicy(
     let policy: Policy;
     try {
       raw = parsePolicyJson(text);
-      policy = buildPolicy(raw, { ...opts, intent });
+      policy = buildPolicy(raw, { ...opts, intent, boundaries });
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
       opts.onAttempt?.(attempt, `unusable: ${lastError}`);

@@ -190,6 +190,14 @@ contradictory instructions. But that is rare, and if you conclude it is what
 happened, say so in unmatchedClauses rather than silently producing a policy
 that cannot run.
 
+HOW LONG THE LINK LASTS
+
+expiryHours is how long the link stays usable. Set it ONLY from a lifetime the
+creator actually states ("valid for 2 hours", "expires Friday", "just for
+today"). If they say nothing about time, use 720 (30 days). Do not shorten it
+because a workflow seems sensitive: the boundaries say what is forbidden, and
+a link that dies after a day is simply a link nobody can use.
+
 ARGUMENT CONSTRAINTS CARRY THE MEANING
 
 "Don't invite anyone outside the company" is not a ban on inviting. It is a ban

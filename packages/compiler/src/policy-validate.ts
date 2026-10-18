@@ -102,6 +102,26 @@ export interface PolicyBuildContext {
   /** app -> origin, so scope rules are simulated against real origins. */
   origins?: Record<string, string>;
   now?: Date;
+  /**
+   * The creator's own sentence. When given, a lifetime is only honoured if
+   * the sentence states one; otherwise the link gets the default.
+   */
+  boundaries?: string;
+}
+
+/** How long a link lasts when its creator does not say. */
+export const DEFAULT_EXPIRY_HOURS = 30 * 24;
+
+/**
+ * Does the creator's sentence say anything about how long the link lasts?
+ *
+ * expiryHours is a required field, so the model always supplies a number -
+ * and with nothing to go on it chose 24. A real demo link died the morning
+ * after it was made, the morning it was to be judged, over a lifetime nobody
+ * asked for. A short life is now honoured only when the sentence asks for one.
+ */
+export function mentionsLifetime(boundaries: string): boolean {
+  return /\b(expir\w*|valid|until|lasts?|only (for|during)|for (the )?(next )?(\d+|a|an|one|two|three)\s*(minute|min|hour|hr|day|week|month)s?|today|tonight|tomorrow|this (morning|afternoon|evening|week|month)|by (monday|tuesday|wednesday|thursday|friday|saturday|sunday|end of))\b/i.test(boundaries);
 }
 
 function constraintsFrom(
@@ -206,7 +226,9 @@ export function buildPolicy(raw: RawPolicy, ctx: PolicyBuildContext): Policy {
   }
 
   const now = ctx.now ?? new Date();
-  const expiryHours = raw.expiryHours && raw.expiryHours > 0 ? raw.expiryHours : 24;
+  const stated = ctx.boundaries === undefined || mentionsLifetime(ctx.boundaries);
+  const expiryHours =
+    stated && raw.expiryHours && raw.expiryHours > 0 ? raw.expiryHours : DEFAULT_EXPIRY_HOURS;
 
   return Policy.parse({
     id: ctx.policyId,

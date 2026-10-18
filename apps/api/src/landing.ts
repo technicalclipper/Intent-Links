@@ -16,7 +16,7 @@ const REPO_URL = "https://github.com/technicalclipper/Intent-Links";
  * that server's store, so another environment points this at one of its own
  * with INTENTLINK_DEMO_LINK.
  */
-const DEMO_LINK_ID = process.env.INTENTLINK_DEMO_LINK ?? "z8tx22unxczqyarz";
+const DEMO_LINK_ID = process.env.INTENTLINK_DEMO_LINK ?? "mnq4nm2ymey793vk";
 
 /**
  * `baseUrl` is wherever this service is actually reached, so the demo's

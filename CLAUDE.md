@@ -324,6 +324,9 @@ Traps found deploying:
   timeout is 900s (the 300s default was too close).
 - The agent keeps runs in memory, so it is pinned to `--max-instances=1` with
   session affinity. Move run state to Firestore before scaling it out.
+- The landing page's demo link is `mnq4nm2ymey793vk` (YouTube theme, expires
+  17 Nov 2026; links last 30 days unless the creator states a lifetime).
+  Replace it before then: publish a new one and set INTENTLINK_DEMO_LINK.
 - A downloaded extension publishes to the server it was downloaded from: the
   zip rewrites the worker's built-in `http://127.0.0.1:8080`.
 

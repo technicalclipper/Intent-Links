@@ -305,8 +305,14 @@ els.abort.addEventListener("click", async () => {
 
 els.create.addEventListener("click", async () => {
   els.create.disabled = true;
+  els.working.textContent = "Compiling the recording, then your boundaries…";
+  els.working.classList.remove("failed");
   els.working.hidden = false;
   els.result.hidden = true;
+  // A failure has to stay on screen. It used to be written here and then
+  // hidden by the finally block a moment later, so a refused publish looked
+  // like nothing happening - and the creator clicked again, twenty times.
+  let failed = false;
   try {
     const published = await ask({
       type: "panel:publish",
@@ -319,13 +325,14 @@ els.create.addEventListener("click", async () => {
       els.link.href = link.url;
       els.result.hidden = false;
     } else {
+      failed = true;
       els.working.textContent = link.error ?? "Could not publish.";
+      els.working.classList.add("failed");
       return;
     }
   } finally {
     els.create.disabled = false;
-    els.working.hidden = true;
-    els.working.textContent = "Compiling the recording, then your boundaries…";
+    if (!failed) els.working.hidden = true;
   }
 });
 

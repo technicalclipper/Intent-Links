@@ -416,6 +416,9 @@ export function createApp(store: Store, secret: string, clock: () => Date = () =
         return json(res, 404, { error: "not found" });
       } catch (err) {
         const message = err instanceof Error ? err.message : "unknown error";
+        // Logged, because a refusal the caller never shows anyone - a publish
+        // the panel failed to display - otherwise leaves no trace at all.
+        console.warn(`400 ${req.method} ${req.url?.split("?")[0]}: ${message.slice(0, 500)}`);
         return json(res, 400, { error: message });
       }
     })();

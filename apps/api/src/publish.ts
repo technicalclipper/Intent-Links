@@ -27,6 +27,7 @@ import {
 } from "@intentlink/compiler";
 import { policyHash } from "@intentlink/policy";
 import { randomUUID } from "node:crypto";
+import { describeIssues, fitTrace } from "./fit.js";
 
 export interface PublishedLink {
   id: string;
@@ -115,7 +116,9 @@ export async function publish(
   req: PublishRequest,
   model: ModelClient = geminiClient(),
 ): Promise<PublishedLink> {
-  const trace = Trace.parse(req.trace);
+  const parsed = Trace.safeParse(fitTrace(req.trace));
+  if (!parsed.success) throw new Error(describeIssues(parsed.error));
+  const trace = parsed.data;
   if (trace.events.length === 0) {
     throw new Error("the recording is empty — nothing to compile");
   }
